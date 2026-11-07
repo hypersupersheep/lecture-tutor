@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<!-- 手写风复习笔记模板: 网格纸 + 小赖手写体 + KaTeX 公式 + 荧光笔; 由 render_handwritten.py 填入内容后打印成 A4 PDF -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cn-fontsource-xiaolai-sc-regular@1.0.2/font.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js"></script>
+<style>
+  @page { size: A4; margin: 0; }
+  :root {
+    --grid: __GRID__mm;                 /* 网格边长 */
+    --row: calc(var(--grid) * 2);       /* 一行字占两格 */
+    --ink: #262a33; --blue: #1f4e9c; --red: #d6336c; --pencil: #7a7f87;
+    --hl: rgba(255, 226, 0, .55); --hl2: rgba(255, 145, 185, .45);
+    --paper: #fdfcf8; --gridline: #d6e1ed;
+    --pad-top: calc(var(--grid) * 3); --pad-right: calc(var(--grid) * 2);
+    --pad-bottom: calc(var(--grid) * 3); --pad-left: calc(var(--grid) * 4);
+  }
+  html, body { margin: 0; background: #e9e6dc; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @media print { html, body { background: none; } }
+
+  .page {
+    width: 210mm; height: 297mm; box-sizing: border-box; position: relative; overflow: hidden;
+    break-after: page; page-break-after: always;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(to right, var(--gridline) 0.2mm, transparent 0.2mm),
+      linear-gradient(to bottom, var(--gridline) 0.2mm, transparent 0.2mm);
+    background-size: var(--grid) var(--grid);
+    background-position: 0 var(--grid-shift);
+    padding: var(--pad-top) var(--pad-right) var(--pad-bottom) var(--pad-left);
+    font-family: "Xiaolai SC", cursive; color: var(--ink);
+    font-size: calc(var(--grid) * 1.02); line-height: var(--row);
+  }
+  .page:last-of-type { break-after: auto; page-break-after: auto; }
+  .measure { position: absolute; left: -10000px; top: 0; }   /* 测量区: 与正式页同宽同字号 */
+  .content { height: 100%; }
+
+  .tag { position: absolute; right: var(--pad-right); top: calc(var(--grid) * 1.2); font-size: 0.72em; color: var(--pencil); line-height: 1; }
+  .pageno { position: absolute; right: var(--pad-right); bottom: calc(var(--grid) * 1.2); font-size: 0.72em; color: var(--pencil); line-height: 1; }
+
+  .row { min-height: var(--row); position: relative; }
+  .title { font-size: 1.45em; color: var(--blue); line-height: var(--row); min-height: calc(var(--row) * 2); display: flex; align-items: center; position: relative; }
+  .h2 { color: var(--blue); font-size: 1.08em; }
+  .li { padding-left: 1.3em; }
+  .li::before { content: "–"; position: absolute; left: 0.25em; color: var(--blue); }
+  .pencil { color: var(--pencil); }
+  .red, .red .katex, .anno .katex { color: var(--red); }
+  .em { color: var(--blue); }
+  .hl  { background: linear-gradient(to top, transparent 8%, var(--hl) 8%, var(--hl) 62%, transparent 62%); padding: 0 0.15em; }
+  .hl2 { background: linear-gradient(to top, transparent 8%, var(--hl2) 8%, var(--hl2) 62%, transparent 62%); padding: 0 0.15em; }
+  .lat { font-family: "Patrick Hand", cursive; font-style: normal; font-size: 1.05em; line-height: 1; }
+  .katex { color: var(--blue); font-size: 1.06em; }
+
+  /* 展示公式: 手绘感不规则圆角框, 右侧可带一条斜着的红笔批注 */
+  .fbox { display: flex; align-items: center; gap: 1.2em; min-height: calc(var(--row) * 2); position: relative; }
+  .box { flex: none; border: 0.45mm solid var(--blue); border-radius: 255px 18px 225px 18px / 18px 225px 18px 255px; padding: 0.25em 0.8em; display: inline-block; max-width: 100%; box-sizing: border-box; }
+  .anno { color: var(--red); display: inline-block; transform: rotate(-2deg); flex: 1 1 0; min-width: 0; }   /* 批注太长就自己折行, 不挤公式 */
+
+  /* 虚线框: 课堂讨论 / 例题 */
+  .dash { border: 0.4mm dashed var(--pencil); border-radius: 18px 225px 18px 255px / 255px 18px 225px 18px; padding: 0 0.8em; margin-left: -0.5em; box-sizing: border-box; position: relative; }
+  .dash .boxtitle { color: var(--blue); }
+
+  /* 便利贴: 易错点 */
+  .sticky-row { display: flex; align-items: center; min-height: calc(var(--row) * 2); position: relative; }
+  .sticky { display: inline-block; background: #fff1a6; padding: 0.15em 0.7em; transform: rotate(-1.4deg); box-shadow: 0.6mm 0.9mm 0 rgba(0, 0, 0, .10); color: var(--red); }
+  .sticky .katex { color: var(--red); }
+
+  /* 行首 ★: 页边红星 */
+  .star::before { content: "★"; position: absolute; left: calc(var(--pad-left) * -0.72); top: 0; color: var(--red); line-height: var(--row); }
+  .title.star::before { line-height: calc(var(--row) * 2); }
+  #status { display: none; }
+</style></head>
+<body>
+<div class="page measure"><div class="content" id="src">
+__BLOCKS__
+</div></div>
+<div id="status">running</div>
+<script>
+  // 页面 JS: 渲染公式 → 等字体 → 每块高度对齐到整行 → 超宽公式缩小 → 分页 → 页码
+  const TAG = __TAG__;
+  function px(v) { const d = document.createElement("div"); d.style.height = v; document.body.appendChild(d); const h = d.getBoundingClientRect().height; d.remove(); return h; }
+  function newPage(first) {
+    const page = document.createElement("div"); page.className = "page";
+    if (first && TAG) { const t = document.createElement("div"); t.className = "tag"; t.textContent = TAG; page.appendChild(t); }
+    const content = document.createElement("div"); content.className = "content"; page.appendChild(content);
+    document.body.insertBefore(page, document.getElementById("status"));
+    return content;
+  }
+  window.addEventListener("DOMContentLoaded", async () => {
+    const src = document.getElementById("src");
+    renderMathInElement(src, { delimiters: [{ left: "$", right: "$", display: false }], ignoredClasses: ["nomath"], throwOnError: false });
+    await document.fonts.ready; await new Promise(r => setTimeout(r, 800)); await document.fonts.ready;
+    const ROW = px("var(--row)");
+    // 网格线对齐到文字基线下方: 测一行的基线位置, 让横线正好落在基线下
+    const probe = src.querySelector(".row:not(:empty)");
+    let shift = 0;
+    if (probe) {
+      const s = document.createElement("span"); s.style.display = "inline-block"; s.style.height = "0"; s.style.verticalAlign = "baseline";
+      probe.insertBefore(s, probe.firstChild);
+      const base = s.getBoundingClientRect().top - probe.getBoundingClientRect().top; s.remove();
+      const grid = ROW / 2, padTop = px("var(--pad-top)");
+      shift = ((padTop + base + grid * 0.12) % grid + grid) % grid;
+    }
+    document.documentElement.style.setProperty("--grid-shift", shift + "px");
+    const maxW = src.clientWidth; let overflow = 0;
+    // 公式框里的公式被挤成两行(KaTeX 在运算符处断行)也算超宽: 换行时后一段会回到左边, 比前一段更靠左
+    // (不能比较顶端: 同一行里带分式的那段本来就更高)
+    const wrapped = b => { const bs = [...b.querySelectorAll(".box .katex .base")].map(x => x.getBoundingClientRect().left);
+                           return bs.some((x, i) => i > 0 && x < bs[i - 1] - 1); };
+    for (const b of src.querySelectorAll(".fbox")) {        // 超宽公式逐步缩小, 最小 60%
+      let fs = 100;
+      while ((b.scrollWidth > maxW + 1 || wrapped(b)) && fs > 60) { fs -= 5; b.style.fontSize = fs + "%"; }
+      if (b.scrollWidth > maxW + 1 || wrapped(b)) overflow++;
+    }
+    const blocks = [...src.children];
+    for (const b of blocks) {
+      if (b.classList.contains("pagebreak")) continue;
+      b.style.minHeight = ""; const h = b.getBoundingClientRect().height;
+      b.style.height = (Math.max(1, Math.ceil(h / ROW - 0.3)) * ROW) + "px";   // 上标、行内公式略高于一行时不多占一行
+    }
+    let content = newPage(true); const pages = [content];
+    for (const b of blocks) {
+      if (b.classList.contains("pagebreak")) { content = newPage(false); pages.push(content); continue; }
+      content.appendChild(b);
+      if (content.scrollHeight > content.clientHeight + 1 && content.children.length > 1) {
+        content.removeChild(b); content = newPage(false); pages.push(content); content.appendChild(b);
+      }
+    }
+    document.querySelector(".measure").remove();
+    pages.forEach((c, i) => { const n = document.createElement("div"); n.className = "pageno"; n.textContent = `${i + 1} / ${pages.length}`; c.parentElement.appendChild(n); });
+    document.getElementById("status").textContent = `done pages=${pages.length} overflow=${overflow}`;
+  });
+</script>
+</body></html>

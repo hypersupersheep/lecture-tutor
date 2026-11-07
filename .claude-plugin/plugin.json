@@ -1,0 +1,20 @@
+{
+  "name": "lecture-tutor",
+  "description": "Turn lecture recordings (Panopto + Moodle) into sourced study notes, hand-drawn Excalidraw maps, a handwritten grid-paper review sheet and an audio lesson",
+  "version": "1.0.0",
+  "author": {
+    "name": "Chenyang Sun"
+  },
+  "homepage": "https://github.com/hypersupersheep/lecture-tutor",
+  "repository": "https://github.com/hypersupersheep/lecture-tutor",
+  "license": "MIT",
+  "keywords": [
+    "lecture",
+    "study-notes",
+    "panopto",
+    "moodle",
+    "obsidian",
+    "excalidraw",
+    "text-to-speech"
+  ]
+}

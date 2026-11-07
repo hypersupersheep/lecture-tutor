@@ -1,0 +1,25 @@
+flowchart TD
+  A["周四 10-29:证明收敛<br>从 Theorem 2.1 出发<br>两条链彼此靠近,靠近什么?"]:::key
+  B["Lemma 2.7 找候选<br>每列最小值 a_j(n) 只升不降"]:::concept
+  C["写下 Theorem 2.2<br>π_j = lim a_j(n),列四条结论"]:::concept
+  D["先证唯一<br>公式 5 左边不含 n,只能是 0"]:::result
+  E["再证收敛<br>三角不等式 + Y 从 i_0 出发"]:::result
+  F["最后证平稳 πP = π<br>顺带 baby ergodic theorem"]:::result
+  A -->|需要一个候选| B
+  B -->|单调有界有极限| C
+  C -->|先证最后一条| D
+  D -->|最重要的一步| E
+  E -->|π 还没验证| F
+  G["周五 10-30:精确抽样<br>跑久只是近似<br>误差说不清有多小"]:::key
+  H["CFTP 的想法<br>从 −∞ 跑到 0<br>失败就再退一步"]:::concept
+  I["形式定义<br>同一组 U,旧的不换<br>M 是最小合并步数"]:::concept
+  J["R 现场实现<br>频率和 π 对得上"]:::example
+  K["monotonicity<br>状态多时只盯两条"]:::concept
+  L["第三章 Poisson<br>指数间隔 → T_n → N(t)<br>模拟:点会成团"]:::key
+  G -->|能不能精确| H
+  H -->|写成定义| I
+  I -->|写成代码| J
+  J -->|怎么省计算| K
+  K -->|课间后换章| L
+  N["概念之间的关系<br>看思维导图"]:::note
+  F -.- N

@@ -1,0 +1,5 @@
+.DS_Store
+__pycache__/
+*.pyc
+# your own config lives in ~/.config/lecture-tutor/, never in the repo
+config.yaml

@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Mermaid 流程图 → Excalidraw 手绘图: 由 render_excalidraw.py 填入配置后用无头 Chrome 打开 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cn-fontsource-xiaolai-sc-regular@1.0.2/font.css">
+<style>html, body { margin: 0; background: #fff; font-family: "Xiaolai SC"; } #out svg { display: block; }</style>
+<script>window.EXCALIDRAW_ASSET_PATH = "https://cdn.jsdelivr.net/npm/@excalidraw/excalidraw@0.18.1/dist/prod/";</script>
+</head><body>
+<div id="out"></div><pre id="status">running</pre><pre id="err"></pre>
+<script id="cfg" type="application/json">__CFG__</script>
+<script type="module">
+try {
+  const cfg = JSON.parse(document.getElementById("cfg").textContent);
+  const ex = await import("https://esm.sh/@excalidraw/excalidraw@0.18.1?deps=react@19.1.0,react-dom@19.1.0");
+  const m2e = await import("https://esm.sh/@excalidraw/mermaid-to-excalidraw@2.2.2");
+  // 排版: Mermaid 节点文字超过约 200px 就强制折行(不受配置控制)。先用 10px 小字排版让每行都放得下,
+  // 再把整张图的坐标和尺寸等比放大到目标字号(多留 5% 给手写体), 框和间距比例不变
+  const MEASURE = 10, k = (cfg.fontSize / MEASURE) * 1.05;
+  const { elements: skel } = await m2e.parseMermaidToExcalidraw(cfg.mermaid, {
+    themeVariables: { fontSize: MEASURE + "px", fontFamily: "Xiaolai SC" }, flowchart: { curve: "basis" } });
+  for (const e of skel) {
+    e.x *= k; e.y *= k;
+    if (e.width) e.width *= k;
+    if (e.height) e.height *= k;
+    if (e.points) e.points = e.points.map(([px, py]) => [px * k, py * k]);
+  }
+  // Excalidraw 把箭头标签放在折线的中间点上; Mermaid 给的折线在起点附近常有一个冗余点, 标签就贴着起点。
+  // 用 Ramer–Douglas–Peucker 简化折线: 近似直线的收成两点, 真正的拐弯保留
+  const segDist = ([px, py], [ax, ay], [bx, by]) => {
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L)) : 0;
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  };
+  const rdp = (pts, eps) => {
+    if (pts.length < 3) return pts;
+    let idx = -1, dmax = 0;
+    for (let i = 1; i < pts.length - 1; i++) { const d = segDist(pts[i], pts[0], pts[pts.length - 1]); if (d > dmax) { dmax = d; idx = i; } }
+    if (dmax <= eps) return [pts[0], pts[pts.length - 1]];
+    return rdp(pts.slice(0, idx + 1), eps).slice(0, -1).concat(rdp(pts.slice(idx), eps));
+  };
+  for (const e of skel) if (e.type === "arrow" && e.points) e.points = rdp(e.points, 14);
+
+  // 手写化: 文字一律 Excalifont(中文由 Excalidraw 自动回退到 Xiaolai 手写体), 线条手绘
+  const nl = t => (t || "").replace(/<br\s*\/?>/gi, "\n");   // Mermaid 的 <br> → Excalidraw 换行
+  for (const e of skel) {
+    e.roughness = 1;
+    if (!e.strokeWidth || e.strokeWidth < 2) e.strokeWidth = 2;
+    if (e.type === "text") { e.text = nl(e.text); e.fontFamily = 5; e.fontSize = cfg.fontSize; }
+    if (e.label) { e.label.text = nl(e.label.text); e.label.fontFamily = 5; e.label.fontSize = e.type === "arrow" ? cfg.fontSize - 3 : cfg.fontSize; }
+    if (e.type === "rectangle") e.roundness = { type: 3 };          // 圆角框更像手画
+    if (e.backgroundColor && e.backgroundColor !== "transparent") e.fillStyle = "solid";
+  }
+
+  // Excalidraw 量字用的是页面里已加载的字体; 先导出一次拿到内嵌的手写字体, 装进页面, 再正式转换一遍, 字宽才准
+  const svg0 = await ex.exportToSvg({ elements: ex.convertToExcalidrawElements(structuredClone(skel)), appState: { exportBackground: true }, files: null });
+  const fontCss = [...svg0.querySelectorAll("style")].map(x => x.textContent).join("\n");
+  const st = document.createElement("style"); st.textContent = fontCss; document.head.appendChild(st);
+  await document.fonts.ready;
+  await Promise.all(["Excalifont", "Xiaolai"].map(f => document.fonts.load(`${cfg.fontSize}px "${f}"`, "测 Measure").catch(() => null)));
+  let elements = ex.convertToExcalidrawElements(structuredClone(skel), { regenerateIds: false });
+
+  // 标题 + 副标题放在整张图左上方
+  const live = elements.filter(e => !e.isDeleted);
+  const minX = Math.min(...live.map(e => e.x)), minY = Math.min(...live.map(e => e.y));
+  const head = [];
+  if (cfg.title) head.push({ type: "text", x: minX, y: minY - (cfg.subtitle ? 110 : 70), text: cfg.title, fontSize: 34, fontFamily: 5, strokeColor: "#1e1e1e" });
+  if (cfg.subtitle) head.push({ type: "text", x: minX + 4, y: minY - 58, text: cfg.subtitle, fontSize: 18, fontFamily: 5, strokeColor: "#868e96" });
+  elements = elements.concat(ex.convertToExcalidrawElements(head));
+
+  // Obsidian 的 ^块引用 只认字母数字和短横线: 统一换成 8 位字母数字 id, 并改掉所有引用
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const map = new Map();
+  const nid = () => Array.from({ length: 8 }, () => abc[Math.floor(Math.random() * abc.length)]).join("");
+  for (const e of elements) map.set(e.id, nid());
+  const fix = id => map.get(id) || id;
+  for (const e of elements) {
+    e.id = fix(e.id);
+    if (e.containerId) e.containerId = fix(e.containerId);
+    if (e.boundElements) e.boundElements = e.boundElements.map(b => ({ ...b, id: fix(b.id) }));
+    if (e.startBinding) e.startBinding = { ...e.startBinding, elementId: fix(e.startBinding.elementId) };
+    if (e.endBinding) e.endBinding = { ...e.endBinding, elementId: fix(e.endBinding.elementId) };
+    if (e.frameId) e.frameId = fix(e.frameId);
+  }
+
+  const svg = await ex.exportToSvg({ elements, appState: { exportBackground: true, viewBackgroundColor: "#ffffff" }, files: null, exportPadding: 36 });
+  document.getElementById("out").appendChild(svg);
+  const scene = { type: "excalidraw", version: 2, source: "https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/tag/2.29.0",
+                  elements, appState: { gridSize: null, viewBackgroundColor: "#ffffff" }, files: {} };
+  const s = document.createElement("script"); s.id = "scene"; s.type = "application/json"; s.textContent = JSON.stringify(scene);
+  document.body.appendChild(s);
+  document.getElementById("status").textContent = `done ${svg.getAttribute("width")}x${svg.getAttribute("height")} elements=${elements.length}`;
+} catch (e) {
+  document.getElementById("err").textContent = String((e && e.stack) || e);
+  document.getElementById("status").textContent = "error";
+}
+</script>
+</body></html>

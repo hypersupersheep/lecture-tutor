@@ -1,0 +1,18 @@
+{
+  "name": "lecture-tutor",
+  "description": "Claude Code skills that turn lecture recordings into study notes, maps, review sheets and audio lessons",
+  "owner": {
+    "name": "Chenyang Sun"
+  },
+  "plugins": [
+    {
+      "name": "lecture-tutor",
+      "description": "Turn lecture recordings (Panopto + Moodle) into sourced study notes, hand-drawn Excalidraw maps, a handwritten grid-paper review sheet and an audio lesson",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Chenyang Sun"
+      }
+    }
+  ]
+}
