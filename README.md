@@ -50,23 +50,19 @@ Week 4 of a second-year stochastic processes module: two lectures on convergence
 
 <table>
   <tr>
-    <th width="38%">Overview map: the order of the argument</th>
-    <th>Concept map: layers and links</th>
+    <th colspan="3">Concept map: the week by concept, every node linked back to the note</th>
   </tr>
   <tr>
-    <td><img src="assets/showcase/overview-map.png" alt="Overview map of the two lectures"></td>
-    <td><img src="assets/showcase/concept-map.png" alt="Concept map with 37 linked nodes"></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <th colspan="3">Review sheet: 3 pages on grid paper</th>
+    <td colspan="3"><img src="assets/showcase/concept-map.png" alt="Concept map with 37 linked nodes"></td>
   </tr>
   <tr>
-    <td><img src="assets/showcase/review-sheet-p1.png" alt="Review sheet, page 1"></td>
-    <td><img src="assets/showcase/review-sheet-p2.png" alt="Review sheet, page 2"></td>
-    <td><img src="assets/showcase/review-sheet-p3.png" alt="Review sheet, page 3"></td>
+    <th width="30%">Overview map: the order of the argument</th>
+    <th colspan="2">Review sheet: handwritten-style pages on grid paper</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="assets/showcase/overview-map.png" alt="Overview map of the two lectures"></td>
+    <td valign="top"><img src="assets/showcase/review-sheet-p1.png" alt="Review sheet, page 1"></td>
+    <td valign="top"><img src="assets/showcase/review-sheet-p2.png" alt="Review sheet, page 2"></td>
   </tr>
 </table>
 
@@ -83,15 +79,15 @@ Week 4 of a second-year stochastic processes module: two lectures on convergence
 ## How it works
 
 ```mermaid
-flowchart LR
-    rec["Panopto recording"] -->|read-only DOM| tr["Transcript<br/>+ chapters"]
-    slides["Slides or<br/>lecture notes"] --> plan
-    tr --> plan["Plan<br/>topic switches · slide inventory<br/>caption errors · uncovered slides"]
-    plan --> quotes["quotes.md<br/>every quote with its source"]
-    quotes --> note["Study note<br/>prose, in lecture order"]
-    note --> check{"note_stats.sh<br/>red lines"}
+flowchart TD
+    rec["Panopto recording"] -->|read-only DOM| tr["Transcript + chapters"]
+    slides["Slides or lecture notes"] --> plan
+    tr --> plan["Plan: topic switches · slide inventory · caption errors · uncovered slides"]
+    plan --> quotes["quotes.md: every quote with its source"]
+    quotes --> note["Study note: prose, in lecture order"]
+    note --> check{"note_stats.sh red lines"}
     check -->|fix| note
-    check --> maps["Overview map<br/>Concept map"]
+    check --> maps["Overview map + concept map"]
     check --> sheet["Review sheet PDF"]
     check --> audio["Audio lesson"]
 ```

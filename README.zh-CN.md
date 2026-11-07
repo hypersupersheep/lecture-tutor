@@ -50,23 +50,19 @@
 
 <table>
   <tr>
-    <th width="38%">总览图:论证的顺序</th>
-    <th>思维导图:层级和关系</th>
+    <th colspan="3">思维导图:按概念组织这一周,每个节点都链回笔记</th>
   </tr>
   <tr>
-    <td><img src="assets/showcase/overview-map.png" alt="两节课的总览图"></td>
-    <td><img src="assets/showcase/concept-map.png" alt="37 个节点的思维导图"></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <th colspan="3">手写复习版:3 页网格纸</th>
+    <td colspan="3"><img src="assets/showcase/concept-map.png" alt="37 个节点的思维导图"></td>
   </tr>
   <tr>
-    <td><img src="assets/showcase/review-sheet-p1.png" alt="手写复习版第 1 页"></td>
-    <td><img src="assets/showcase/review-sheet-p2.png" alt="手写复习版第 2 页"></td>
-    <td><img src="assets/showcase/review-sheet-p3.png" alt="手写复习版第 3 页"></td>
+    <th width="30%">总览图:论证的顺序</th>
+    <th colspan="2">手写复习版:网格纸上的手写风页面</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="assets/showcase/overview-map.png" alt="两节课的总览图"></td>
+    <td valign="top"><img src="assets/showcase/review-sheet-p1.png" alt="手写复习版第 1 页"></td>
+    <td valign="top"><img src="assets/showcase/review-sheet-p2.png" alt="手写复习版第 2 页"></td>
   </tr>
 </table>
 
@@ -83,15 +79,15 @@
 ## 工作流程
 
 ```mermaid
-flowchart LR
-    rec["Panopto 录像"] -->|只读 DOM| tr["转写<br/>+ 章节"]
+flowchart TD
+    rec["Panopto 录像"] -->|只读 DOM| tr["转写 + 章节"]
     slides["课件或讲义"] --> plan
-    tr --> plan["整理<br/>话题切换点 · 课件逐页清单<br/>误听清单 · 没讲到的页"]
-    plan --> quotes["quotes.md<br/>每句引文带出处"]
-    quotes --> note["讲解笔记<br/>按讲课顺序写成文章"]
-    note --> check{"note_stats.sh<br/>形态红线"}
+    tr --> plan["整理:话题切换点 · 课件逐页清单 · 误听清单 · 没讲到的页"]
+    plan --> quotes["quotes.md:每句引文带出处"]
+    quotes --> note["讲解笔记:按讲课顺序写成文章"]
+    note --> check{"note_stats.sh 形态红线"}
     check -->|返工| note
-    check --> maps["总览图<br/>思维导图"]
+    check --> maps["总览图 + 思维导图"]
     check --> sheet["手写复习版 PDF"]
     check --> audio["语音"]
 ```
