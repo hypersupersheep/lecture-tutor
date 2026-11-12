@@ -35,12 +35,13 @@ def _tokens(text: str) -> list[str]:
 
     A run is a maximal stretch of letters of one script (CJK or not). Digits,
     punctuation and whitespace end a run, and so does a change of script.
+    Punctuation inside the CJK ranges (U+30FB "・", U+30A0 "゠") ends a run too.
     """
     runs: list[tuple[str, bool]] = []
     current: list[str] = []
     current_cjk = False
     for c in text:
-        cjk = _is_cjk(c)
+        cjk = _is_cjk(c) and not unicodedata.category(c).startswith("P")
         if cjk or c.isalpha():
             if current and cjk != current_cjk:
                 runs.append(("".join(current), current_cjk))

@@ -1,9 +1,13 @@
 import json
 
+import pytest
+
 from fixtures.make_pdf import make_pdf
+from tutor_any_lecture.acquire.importer import import_transcript
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.slides import Page, extract_pdf, load_pages, max_label, slide_terms, term_list
 from tutor_any_lecture.source import sha256_file
+from tutor_any_lecture.transcript import AcquireError
 from tutor_any_lecture.unit import UnitPaths
 
 
@@ -91,13 +95,56 @@ def test_cli_slides_pdf(tmp_path, capsys):
 
 
 def test_cli_slides_usage(tmp_path, capsys):
-    assert main(["slides"]) == 2
-    assert main(["slides", "--pdf", str(tmp_path / "x.pdf")]) == 2
-    captured = capsys.readouterr()
-    assert captured.err.strip() != "" and captured.out == ""
+    for argv in (["slides"], ["slides", "--pdf", str(tmp_path / "x.pdf")]):
+        assert main(argv) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        lines = captured.err.splitlines()
+        assert len(lines) == 1
+        assert "slides --pdf" in lines[0] and "slides suspects" in lines[0]
 
 
 def test_cli_slides_missing_pdf(tmp_path):
     unit = tmp_path / "unit"
     assert main(["slides", "--pdf", str(tmp_path / "missing.pdf"), "--unit", str(unit)]) == 1
     assert not unit.exists()
+
+
+def test_not_a_pdf_is_acquire_error_and_writes_nothing(tmp_path):
+    pdf = tmp_path / "notes.pdf"
+    pdf.write_bytes(b"not a pdf")
+    unit = tmp_path / "unit"
+    with pytest.raises(AcquireError) as exc:
+        extract_pdf(pdf, unit)
+    assert str(exc.value) == "notes.pdf is not a readable PDF"
+    assert exc.value.__cause__ is not None
+    assert not unit.exists()
+
+
+def test_cli_slides_not_a_pdf_exits_1(tmp_path, capsys):
+    pdf = tmp_path / "notes.pdf"
+    pdf.write_bytes(b"not a pdf")
+    unit = tmp_path / "unit"
+    assert main(["slides", "--pdf", str(pdf), "--unit", str(unit)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == ["notes.pdf is not a readable PDF"]
+    assert not unit.exists()
+
+
+def test_cli_slides_pdf_with_suspects_is_usage(tmp_path, capsys):
+    pdf = make_pdf(tmp_path, ["Compound interest\n1/1"])
+    a = tmp_path / "A"
+    b = tmp_path / "B"
+    vtt = tmp_path / "lecture.vtt"
+    vtt.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nCompound interes\n", encoding="utf-8", newline="\n")
+    import_transcript(vtt, b, None, False)   # so that "suspects --unit B" could have run
+    before = sorted(p.relative_to(b) for p in b.rglob("*"))
+    assert main(["slides", "--pdf", str(pdf), "--unit", str(a), "suspects", "--unit", str(b)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    lines = captured.err.splitlines()
+    assert len(lines) == 1 and "slides --pdf" in lines[0] and "slides suspects" in lines[0]
+    assert not a.exists()
+    assert sorted(p.relative_to(b) for p in b.rglob("*")) == before
+    assert not UnitPaths(b).suspects.exists()

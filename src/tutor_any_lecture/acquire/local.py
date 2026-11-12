@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -65,6 +66,8 @@ def acquire_local(
         return _transcribe_into_unit(wav, file, unit, profile, budget_minutes, backend, model)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        if tmp.exists():
+            print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
 
 
 def _transcribe_into_unit(

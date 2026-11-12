@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .source import SourceInfo, sha256_file
+from .transcript import AcquireError
 from .unit import UnitPaths
 
 # A footer such as "3/12" or " 3 / 12 " on the last non-empty line of a page.
@@ -39,21 +40,35 @@ def _footer_label(text: str) -> str | None:
 
 
 def extract_pdf(pdf: Path, unit: Path, images: bool = False) -> list[Page]:
-    """Read every page of ``pdf`` into the unit's pages.json (and page images when asked)."""
+    """Read every page of ``pdf`` into the unit's pages.json (and page images when asked).
+
+    The PDF is opened and its text read before anything is created in the unit, so an
+    unreadable file (not a PDF, damaged, encrypted) raises ``AcquireError`` and writes nothing.
+    """
     pdf = Path(pdf)
     if not pdf.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf}")
-    paths = UnitPaths(unit).ensure()
-    slides_dir = paths.pages.parent
 
     import importlib.metadata
 
     import pdfplumber  # imported here so the rest of this module stays cheap to import
 
-    pages: list[Page] = []
-    with pdfplumber.open(pdf) as doc:
-        for n, page in enumerate(doc.pages, start=1):
-            text = page.extract_text() or ""
+    try:
+        doc = pdfplumber.open(pdf)
+    # pdfplumber and pdfminer raise many unrelated types on a bad file (PdfminerException,
+    # PSEOF, KeyError, zlib.error, ...); this try holds only the pdfplumber calls.
+    except Exception as e:
+        raise AcquireError(f"{pdf.name} is not a readable PDF") from e
+    with doc:
+        try:
+            texts = [page.extract_text() or "" for page in doc.pages]
+        except Exception as e:
+            raise AcquireError(f"{pdf.name} is not a readable PDF") from e
+
+        paths = UnitPaths(unit).ensure()
+        slides_dir = paths.pages.parent
+        pages: list[Page] = []
+        for n, (page, text) in enumerate(zip(doc.pages, texts), start=1):
             image = None
             if images:
                 image = f"page-{n:03d}.png"

@@ -62,9 +62,14 @@ def _duration(text: str) -> float | None:
 
 
 def _chapters(contents) -> list[dict]:
+    """Chapters from the extract's ``contents``; a non-list counts as empty, non-strings are skipped."""
+    if not isinstance(contents, list):
+        return []
     chapters: list[dict] = []
     for raw in contents:
-        s = str(raw).strip()
+        if not isinstance(raw, str):
+            continue
+        s = raw.strip()
         if s.startswith(_RETRY_CANCEL):
             s = s[len(_RETRY_CANCEL):]
         s = s.strip()
@@ -103,6 +108,7 @@ def import_panopto(extract: Path, unit: Path, force: bool) -> Health:
     paths.ensure()
     paths.transcript.write_text(Transcript(segments, None).to_json(), encoding="utf-8", newline="\n")
     chapters = _chapters(d.get("contents", []))
+    details = d.get("details") if isinstance(d.get("details"), str) else ""
     paths.chapters.write_text(json.dumps(chapters, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     SourceInfo(
         kind="platform",
@@ -115,6 +121,6 @@ def import_panopto(extract: Path, unit: Path, force: bool) -> Health:
         health=dataclasses.asdict(h),
         tool_versions={"tutor-any-lecture": __version__},
         inputs_sha256={extract.name: sha256_file(extract)},
-        lecture_date=_lecture_date(d.get("details", "")),
+        lecture_date=_lecture_date(details),
     ).write(paths.source)
     return h

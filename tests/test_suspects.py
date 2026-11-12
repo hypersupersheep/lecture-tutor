@@ -6,7 +6,7 @@ from fixtures.make_pdf import make_pdf
 from tutor_any_lecture.acquire.importer import import_transcript
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.slides import Page, extract_pdf
-from tutor_any_lecture.suspects import flag_suspects
+from tutor_any_lecture.suspects import _tokens, flag_suspects
 from tutor_any_lecture.transcript import Segment, Transcript
 from tutor_any_lecture.unit import UnitPaths
 
@@ -65,3 +65,10 @@ def test_transcript_unchanged(tmp_path):
 def test_cli_suspects_needs_transcript(tmp_path):
     assert main(["slides", "suspects", "--unit", str(tmp_path)]) == 1
     assert not UnitPaths(tmp_path).suspects.exists()
+
+
+def test_cjk_punctuation_ends_a_run():
+    tokens = _tokens("ブラック・ショールズ")
+    assert not any("・" in t for t in tokens)
+    assert "ブラ" in tokens and "ショ" in tokens
+    assert not any("゠" in t for t in _tokens("ブラック゠ショールズ"))

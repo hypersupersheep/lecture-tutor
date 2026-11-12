@@ -1,5 +1,7 @@
 import copy
 import json
+import shutil
+import types
 import wave
 from pathlib import Path
 
@@ -7,10 +9,11 @@ import pytest
 import yt_dlp
 
 from tutor_any_lecture import asr
+from tutor_any_lecture.acquire import url as url_module
 from tutor_any_lecture.acquire.url import NeedsUserFile, _unroll_auto, acquire_url, pick_caption
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.profile import Profile
-from tutor_any_lecture.transcript import Segment, Transcript, parse_vtt
+from tutor_any_lecture.transcript import AcquireError, Segment, Transcript, parse_vtt
 from tutor_any_lecture.unit import UnitPaths
 
 BANNED = {"cookiefile", "cookiesfrombrowser", "username", "allow_unplayable_formats"}
@@ -94,7 +97,9 @@ class _FakeYDL:
     """Stands in for yt_dlp.YoutubeDL. State lives on the class; _install makes a fresh subclass per test."""
 
     info = {}
+    info_error = None      # an exception the metadata call raises, or None
     captions = {}          # {(kind, key): vtt text}; kind is "cc" or "auto"
+    caption_errors = set() # (kind, key) whose download raises DownloadError
     audio_error = False
     all_opts = []          # the options dict of every instance, in creation order
     last_opts = None       # == all_opts[-1]
@@ -115,6 +120,8 @@ class _FakeYDL:
 
     def extract_info(self, url, download=True, **kwargs):
         assert download is False, "the metadata call must pass download=False"
+        if type(self).info_error is not None:
+            raise type(self).info_error
         return copy.deepcopy(type(self).info)
 
     def download(self, url_list):
@@ -131,6 +138,8 @@ class _FakeYDL:
             kind = "cc" if want_cc else "auto"
             for key in self.params["subtitleslangs"]:
                 cls.caption_requests.append((kind, key))
+                if (kind, key) in cls.caption_errors:
+                    raise yt_dlp.utils.DownloadError(f"ERROR: Unable to download video subtitles for {key!r}")
                 text = cls.captions.get((kind, key))
                 if text is not None:
                     (folder / f"vid.{key}.vtt").write_text(text, encoding="utf-8", newline="\n")
@@ -147,12 +156,14 @@ class _FakeYDL:
         return 0
 
 
-def _install(monkeypatch, info_dict, captions=None, audio_error=False):
+def _install(monkeypatch, info_dict, captions=None, audio_error=False, info_error=None, caption_errors=()):
     class Fake(_FakeYDL):
         pass
 
     Fake.info = info_dict
+    Fake.info_error = info_error
     Fake.captions = dict(captions or {})
+    Fake.caption_errors = set(caption_errors)
     Fake.audio_error = audio_error
     Fake.all_opts, Fake.downloads, Fake.caption_requests, Fake.folders = [], [], [], []
     Fake.last_opts = None
@@ -341,3 +352,106 @@ def test_cli_url_needs_user_file(tmp_cfg, fake_ydl_no_caps, tmp_path, capsys):
     assert out["status"] == "needs_user_file"
     assert all(w in out["message"] for w in ("file", "transcript", "public_video_audio"))
     assert fake_ydl_no_caps.downloads == []
+
+
+# ---- hardening -------------------------------------------------------------
+
+def test_metadata_failure_is_acquire_error(monkeypatch, fake_asr, tmp_path, profile_on):
+    error = yt_dlp.utils.DownloadError("ERROR: [youtube] abc: Video unavailable")
+    fake = _install(monkeypatch, info(), info_error=error)
+    with pytest.raises(AcquireError) as exc:
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    message = str(exc.value)
+    assert len(message.splitlines()) == 1
+    assert "Video unavailable" in message and "ERROR:" not in message
+    assert message == "could not read the video page: [youtube] abc: Video unavailable"
+    assert fake.folders == [] and not UnitPaths(tmp_path).transcript.exists()
+
+
+def test_metadata_failure_reason_is_one_line(monkeypatch, fake_asr, tmp_path, profile_on):
+    error = yt_dlp.utils.DownloadError("\x1b[0;31mERROR:\x1b[0m [youtube] abc:   Private video.\n  Sign in   if granted access")
+    _install(monkeypatch, info(), info_error=error)
+    with pytest.raises(AcquireError) as exc:
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert str(exc.value) == "could not read the video page: [youtube] abc: Private video. Sign in if granted access"
+
+
+def test_cli_url_metadata_failure_is_error_json(tmp_cfg, monkeypatch, tmp_path, capsys):
+    error = yt_dlp.utils.DownloadError("ERROR: [youtube] abc: Video unavailable")
+    _install(monkeypatch, info(), info_error=error)
+    unit = tmp_path / "unit"
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    obj = json.loads(lines[0])
+    assert obj["status"] == "error" and "Video unavailable" in obj["message"]
+    assert not UnitPaths(unit).transcript.exists()
+
+
+def test_playlist_url_is_refused(monkeypatch, fake_asr, tmp_path, profile_on):
+    fake = _install(monkeypatch, {"_type": "playlist", "entries": [{"id": "a"}, {"id": "b"}]})
+    with pytest.raises(AcquireError) as exc:
+        acquire_url("https://y/playlist?list=x", tmp_path, profile_on, False)
+    assert str(exc.value) == "this URL is a playlist; pass the URL of one video"
+    assert fake.caption_requests == [] and fake.downloads == [] and fake.folders == []
+    assert fake_asr.calls == []
+    assert not UnitPaths(tmp_path).transcript.exists()
+
+
+def test_entries_without_type_is_a_playlist(monkeypatch, fake_asr, tmp_path, profile_on):
+    fake = _install(monkeypatch, {**info(subs={"en": [orig()]}, lang="en"), "entries": []})
+    with pytest.raises(AcquireError, match="playlist"):
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert fake.folders == []
+
+
+def test_auto_captions_are_unrolled_through_acquire_url(monkeypatch, tmp_path, profile_off):
+    # YT_AUTO_VTT runs to 7 s, so a 7 s video keeps it healthy.
+    _install(monkeypatch, info(auto={"en-orig": [orig()]}, lang="en", duration=7.0), {("auto", "en-orig"): YT_AUTO_VTT})
+    assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
+    texts = [s.text for s in Transcript.from_json(UnitPaths(tmp_path).transcript).segments]
+    assert texts == ["hello and welcome back", "today we study graphs", "first the shortest path"]
+    assert all(a != b for a, b in zip(texts, texts[1:]))
+    assert read_source(tmp_path)["acquisition"] == "auto"
+
+
+def test_caption_download_error_falls_back_to_auto(monkeypatch, tmp_path, profile_off):
+    fake = _install(
+        monkeypatch,
+        info(subs={"en": [orig()]}, auto={"en-orig": [orig()]}, lang="en"),
+        {("cc", "en"): GOOD_VTT, ("auto", "en-orig"): GOOD_VTT},
+        caption_errors={("cc", "en")},
+    )
+    assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
+    assert fake.caption_requests == [("cc", "en"), ("auto", "en-orig")]
+    assert read_source(tmp_path)["acquisition"] == "auto"
+    assert all(not f.exists() for f in fake.folders)
+
+
+def test_missing_vtt_file_falls_back_to_auto(monkeypatch, tmp_path, profile_off):
+    # No text for ("cc", "en"): the manual download writes no .vtt file.
+    fake = _install(
+        monkeypatch,
+        info(subs={"en": [orig()]}, auto={"en-orig": [orig()]}, lang="en"),
+        {("auto", "en-orig"): GOOD_VTT},
+    )
+    assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
+    assert fake.caption_requests == [("cc", "en"), ("auto", "en-orig")]
+    assert read_source(tmp_path)["acquisition"] == "auto"
+
+
+def test_undeletable_temp_warns_on_stderr(monkeypatch, fake_ydl, tmp_path, profile_off, capsys):
+    # rmtree does nothing, but only where url.py calls it.
+    monkeypatch.setattr(url_module, "shutil", types.SimpleNamespace(rmtree=lambda *a, **k: None))
+    try:
+        assert acquire_url("https://y/x", tmp_path / "unit", profile_off, False).ok
+        captured = capsys.readouterr()
+        folder = fake_ydl.folders[0]
+        assert folder.exists()
+        lines = captured.err.splitlines()
+        assert len(lines) == 1
+        assert lines[0].startswith("warning: could not delete the temporary folder") and str(folder) in lines[0]
+        assert captured.out == ""
+    finally:
+        for f in fake_ydl.folders:
+            shutil.rmtree(f, ignore_errors=True)

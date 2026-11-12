@@ -7,7 +7,9 @@ into a temp folder that is removed when the run ends.
 from __future__ import annotations
 
 import dataclasses
+import re
 import shutil
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,6 +23,7 @@ from ..profile import Profile
 from ..slides import load_pages, slide_terms
 from ..source import SourceInfo
 from ..transcript import (
+    AcquireError,
     EmptyTranscript,
     Health,
     Segment,
@@ -40,6 +43,9 @@ _BASE_OPTS = {
     "logtostderr": True,
     "noplaylist": True,
 }
+
+# Colour codes yt-dlp may put around "ERROR:" when stderr is a terminal.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class NeedsUserFile(Exception):
@@ -148,6 +154,14 @@ def _temp_dir():
         yield tmp
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        if tmp.exists():
+            print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
+
+
+def _reason(error: Exception) -> str:
+    """yt-dlp's message on one line, without colour codes or a leading "ERROR: "."""
+    text = " ".join(_ANSI.sub("", str(error)).split())
+    return text[len("ERROR: "):] if text.startswith("ERROR: ") else text
 
 
 def _try_caption(url: str, kind: str, lang: str, duration: float | None) -> tuple[list[Segment], Health] | None:
@@ -219,8 +233,14 @@ def acquire_url(url: str, unit: Path, profile: Profile, force: bool) -> Health:
     if paths.transcript.exists() and not force:
         raise FileExistsError(f"{paths.transcript} already exists; rerun with --force to replace it")
 
-    with yt_dlp.YoutubeDL(dict(_BASE_OPTS)) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(dict(_BASE_OPTS)) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        raise AcquireError(f"could not read the video page: {_reason(e)}") from e
+    # Before any caption or audio download: one unit holds one video.
+    if info.get("_type") == "playlist" or "entries" in info:
+        raise AcquireError("this URL is a playlist; pass the URL of one video")
     duration = info.get("duration")
 
     pick = pick_caption(info, profile.lecture_language)

@@ -163,13 +163,15 @@ def _cmd_transcribe(args) -> int:
     )
 
 
+_SLIDES_USAGE = (
+    "usage: tutor-any-lecture slides --pdf F --unit DIR [--images]"
+    " | tutor-any-lecture slides suspects --unit DIR"
+)
+
+
 def _cmd_slides(args) -> int:
     if args.pdf is None or args.unit is None:
-        print(
-            "usage: tutor-any-lecture slides --pdf F --unit DIR [--images]"
-            " | tutor-any-lecture slides suspects --unit DIR",
-            file=sys.stderr,
-        )
+        print(_SLIDES_USAGE, file=sys.stderr)
         return EXIT_USAGE
 
     from pathlib import Path
@@ -183,6 +185,11 @@ def _cmd_slides(args) -> int:
 
 
 def _cmd_slides_suspects(args) -> int:
+    if args.pdf is not None:
+        # "slides --pdf F suspects": two commands in one; run neither.
+        print(_SLIDES_USAGE, file=sys.stderr)
+        return EXIT_USAGE
+
     from pathlib import Path
 
     from .suspects import write_suspects

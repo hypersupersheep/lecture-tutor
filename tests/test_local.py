@@ -1,5 +1,7 @@
 import json
+import shutil
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -229,3 +231,22 @@ def test_local_backend_missing_before_extraction(monkeypatch, tmp_path):
     with pytest.raises(asr.BackendMissing):
         acquire_local(src, unit, Profile(), False)
     assert extracted == [] and not unit.exists()
+
+
+def test_local_undeletable_temp_warns_on_stderr(monkeypatch, tmp_path, capsys):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    # rmtree does nothing, but only where local.py calls it.
+    monkeypatch.setattr(local, "shutil", types.SimpleNamespace(rmtree=lambda *a, **k: None))
+    acquire_local(src, unit, Profile(), False)
+    folder = fake.calls[0]["audio"].parent
+    try:
+        assert folder.exists()
+        captured = capsys.readouterr()
+        lines = captured.err.splitlines()
+        assert len(lines) == 1
+        assert lines[0].startswith("warning: could not delete the temporary folder") and str(folder) in lines[0]
+        assert captured.out == ""
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)

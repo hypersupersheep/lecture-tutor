@@ -5,6 +5,7 @@ import pytest
 from conftest import fx
 from tutor_any_lecture.acquire.panopto import import_panopto, load_extract
 from tutor_any_lecture.cli import main
+from tutor_any_lecture.source import SourceInfo
 from tutor_any_lecture.transcript import EmptyTranscript, Transcript
 from tutor_any_lecture.unit import UnitPaths
 
@@ -113,3 +114,68 @@ def test_cli_acquire_panopto(tmp_path, capsys):
     assert main(argv) == 3
     assert "--force" in capsys.readouterr().err
     assert main(argv + ["--force"]) == 0
+
+
+def plain_extract():
+    """Local helper: the plain fixture as a dict."""
+    return json.loads(fx("panopto", "plain.json").read_text(encoding="utf-8"))
+
+
+def test_malformed_contents_are_ignored(tmp_path):
+    unit = tmp_path / "a"
+    import_panopto(write_extract(tmp_path, "a.json", {**plain_extract(), "contents": "abc"}), unit, False)
+    assert json.loads(UnitPaths(unit).chapters.read_text(encoding="utf-8")) == []
+
+    unit = tmp_path / "b"
+    contents = [None, {"x": 1}, "Limpets and anemones 0:31"]
+    import_panopto(write_extract(tmp_path, "b.json", {**plain_extract(), "contents": contents}), unit, False)
+    chapters = json.loads(UnitPaths(unit).chapters.read_text(encoding="utf-8"))
+    assert chapters == [{"title": "Limpets and anemones", "start": 31.0}]
+
+
+def test_non_list_details_is_empty_transcript(tmp_path):
+    extract = write_extract(tmp_path, "d.json", {"details": "abc"})
+    unit = tmp_path / "u"
+    with pytest.raises(EmptyTranscript):
+        import_panopto(extract, unit, False)
+    assert not unit.exists()
+
+
+def test_non_string_details_has_no_lecture_date(tmp_path):
+    for i, details in enumerate([["2026-10-06 16:00"], {"x": 1}, 5]):
+        unit = tmp_path / f"u{i}"
+        extract = write_extract(tmp_path, f"d{i}.json", {**plain_extract(), "details": details})
+        assert import_panopto(extract, unit, False).ok
+        assert json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))["lecture_date"] is None
+
+
+def test_load_extract_rejects_non_object(tmp_path):
+    p = tmp_path / "list.json"
+    p.write_text("[1, 2]", encoding="utf-8", newline="\n")
+    with pytest.raises(ValueError):
+        load_extract(p)
+
+
+def test_bom_extract_is_read(tmp_path):
+    p = tmp_path / "bom.json"
+    p.write_bytes(b"\xef\xbb\xbf" + fx("panopto", "plain.json").read_bytes())
+    assert load_extract(p) == load_extract(fx("panopto", "plain.json"))
+
+
+def test_import_into_slides_only_unit(tmp_path):
+    u = UnitPaths(tmp_path / "u")
+    SourceInfo(kind="slides-only", title="deck", url=None, platform=None, duration=None, lecture_language=None,
+               acquisition="slides", health={}, tool_versions={}, inputs_sha256={}).write(u.source)
+    assert not u.transcript.exists()
+    assert import_panopto(fx("panopto", "plain.json"), tmp_path / "u", False).ok
+    assert SourceInfo.read(u.source).kind == "platform" and u.transcript.exists()
+
+
+def test_cli_panopto_non_object_is_error_json(tmp_path, capsys):
+    p = tmp_path / "list.json"
+    p.write_text("[1, 2]", encoding="utf-8", newline="\n")
+    unit = tmp_path / "u"
+    assert main(["acquire", "panopto", "--extract", str(p), "--unit", str(unit)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1 and json.loads(lines[0])["status"] == "error"
+    assert not UnitPaths(unit).transcript.exists()
