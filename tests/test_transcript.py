@@ -1,5 +1,6 @@
 import json
 import pickle
+import re
 from pathlib import Path
 
 import pytest
@@ -178,6 +179,15 @@ def test_no_literal_bom_in_python_files():
     files = sorted(f for folder in (root / "src", root / "tests") for f in folder.rglob("*.py"))
     assert files
     offenders = [str(f) for f in files if "\ufeff" in f.read_text(encoding="utf-8")]
+    assert offenders == []
+
+
+def test_no_private_use_characters_in_python_files():
+    root = Path(__file__).resolve().parents[1]
+    files = sorted(f for folder in (root / "src", root / "tests") for f in folder.rglob("*.py"))
+    assert files
+    private_use = re.compile("[\ue000-\uf8ff]")
+    offenders = [str(f) for f in files if private_use.search(f.read_text(encoding="utf-8"))]
     assert offenders == []
 
 

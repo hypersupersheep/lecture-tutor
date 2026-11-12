@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from tutor_any_lecture.textstats import char_jaccard, containment, jaccard, ngrams, units
@@ -25,3 +28,18 @@ def test_ngrams_and_containment():
 def test_char_jaccard_keeps_punctuation():
     # 19 and 20 distinct 3-grams, 18 shared, 21 in the union
     assert char_jaccard("What is a martingale?", "What is a martingale ?") == pytest.approx(18 / 21)
+
+
+
+def test_no_cross_module_private_imports():
+    package = Path(__file__).resolve().parents[1] / "src" / "tutor_any_lecture"
+    files = sorted(package.rglob("*.py"))
+    assert files
+    pattern = re.compile(r"from \.[\w.]* import .*\b_[a-z]")
+    offenders = [
+        f"{f.name}:{n}"
+        for f in files
+        for n, line in enumerate(f.read_text(encoding="utf-8").split("\n"), 1)
+        if pattern.search(line)
+    ]
+    assert offenders == []

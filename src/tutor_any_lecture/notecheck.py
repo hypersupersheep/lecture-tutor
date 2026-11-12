@@ -12,8 +12,7 @@ import re
 
 from .checks import CheckResult
 from .citations import parse
-# _FENCE_OPEN_RE and _strip_code are package-internal: check_note removes code as units() does.
-from .textstats import _FENCE_OPEN_RE, _strip_code, is_cjk_language, units
+from .textstats import fenced_lines, is_cjk_language, strip_code, units
 
 THRESHOLDS = {
     "length_per_min": {"deep": {"cjk": (44, 89), "words": (26, 53)},
@@ -58,18 +57,14 @@ BULLET_RE = re.compile(r"^\s*[-*+] ")
 # ---------------------------------------------------------------- markers
 
 
-def _marker_lines(lines: list[str]) -> list[tuple[int, bool, str]]:
+Mark = tuple[int, bool, str]  # (line index, is_close, name)
+
+
+def _marker_lines(lines: list[str]) -> list[Mark]:
     """(line index, is_close, name) of every marker line outside fenced code blocks."""
-    out: list[tuple[int, bool, str]] = []
-    fence: str | None = None
-    for i, line in enumerate(lines):
-        if fence is not None:
-            if line.lstrip().startswith(fence):
-                fence = None
-            continue
-        f = _FENCE_OPEN_RE.match(line)
-        if f:
-            fence = f.group(1)
+    out: list[Mark] = []
+    for i, (line, fenced) in enumerate(zip(lines, fenced_lines(lines))):
+        if fenced:
             continue
         m = MARKER_RE.match(line)
         if m:
@@ -77,15 +72,16 @@ def _marker_lines(lines: list[str]) -> list[tuple[int, bool, str]]:
     return out
 
 
+def _opens_section(mark: Mark, nxt: Mark | None) -> bool:
+    """The pairing rule: a known open marker whose next marker line closes the same name."""
+    _, close, name = mark
+    return not close and name in MARKER_NAMES and nxt is not None and nxt[1] and nxt[2] == name
+
+
 def _sections(lines: list[str]) -> list[tuple[str, int, int]]:
-    """(name, open index, close index) of every section: a known open marker whose next
-    marker line is the close marker of the same name."""
+    """(name, open index, close index) of every section."""
     marks = _marker_lines(lines)
-    out: list[tuple[str, int, int]] = []
-    for (i, close, name), nxt in zip(marks, marks[1:]):
-        if not close and name in MARKER_NAMES and nxt[1] and nxt[2] == name:
-            out.append((name, i, nxt[0]))
-    return out
+    return [(mark[2], mark[0], nxt[0]) for mark, nxt in zip(marks, marks[1:]) if _opens_section(mark, nxt)]
 
 
 def marker_sections(md: str) -> dict[str, list[str]]:
@@ -106,30 +102,32 @@ def strip_marker_sections(md: str) -> str:
     return "\n".join(line for i, line in enumerate(lines) if i not in drop)
 
 
-def _marker_problems(lines: list[str]) -> list[str]:
+def _marker_problems(lines: list[str], line_numbers: list[int]) -> list[str]:
+    """Marker problems of ``lines``; ``line_numbers[i]`` is the note's own 1-based number of ``lines[i]``."""
     marks = _marker_lines(lines)
     problems: list[str] = []
     paired: set[int] = set()  # positions in `marks` that belong to a section
     seen: dict[str, int] = {}
-    for k, (i, close, name) in enumerate(marks):
-        nxt = marks[k + 1] if k + 1 < len(marks) else None
-        if not close and name in MARKER_NAMES and nxt is not None and nxt[1] and nxt[2] == name:
+    for k, mark in enumerate(marks):
+        i, _, name = mark
+        if _opens_section(mark, marks[k + 1] if k + 1 < len(marks) else None):
             paired.update((k, k + 1))
             seen[name] = seen.get(name, 0) + 1
             if name in SINGLE_MARKERS and seen[name] == 2:
-                problems.append(f"line {i + 1}: second '{name}' section")
+                problems.append(f"line {line_numbers[i]}: second '{name}' section")
     for k, (i, close, name) in enumerate(marks):
         if k in paired:
             continue
+        where = f"line {line_numbers[i]}"
         tag = f"<!-- {'/' if close else ''}tal:{name} -->"
         if name not in MARKER_NAMES:
-            problems.append(f"line {i + 1}: unknown marker {tag}")
+            problems.append(f"{where}: unknown marker {tag}")
         elif close:
-            problems.append(f"line {i + 1}: {tag} closes nothing")
+            problems.append(f"{where}: {tag} closes nothing")
         elif k + 1 < len(marks):
-            problems.append(f"line {i + 1}: {tag} is not closed before the next marker")
+            problems.append(f"{where}: {tag} is not closed before the next marker")
         else:
-            problems.append(f"line {i + 1}: {tag} is never closed")
+            problems.append(f"{where}: {tag} is never closed")
     return problems
 
 
@@ -292,7 +290,10 @@ def check_note(
     unit_name = "CJK characters" if cjk else "words"
     known = duration_min is not None and duration_min > 0
 
-    w = _strip_code(md)
+    w = strip_code(md)
+    # strip_code keeps one line per line outside fenced blocks: map W's lines back to the note's.
+    raw_lines = md.split("\n")
+    w_line_numbers = [n for n, fenced in enumerate(fenced_lines(raw_lines), 1) if not fenced]
     p = strip_marker_sections(w)
     bodies = marker_sections(w)
     w_lines = w.split("\n")
@@ -302,7 +303,7 @@ def check_note(
     results: list[CheckResult] = []
 
     # -- FAIL rules
-    results.append(_result("markers", "FAIL", _marker_problems(w_lines)))
+    results.append(_result("markers", "FAIL", _marker_problems(w_lines, w_line_numbers)))
     results.append(_result("h4", "FAIL", [f"H4 or deeper: {_short(x)}" for x in w_lines if H4_RE.match(x)]))
     results.append(
         _result(

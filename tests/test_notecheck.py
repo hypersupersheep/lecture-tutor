@@ -120,3 +120,16 @@ def test_h2_count_cap_scales_with_duration():
 def test_unknown_goal_raises():
     with pytest.raises(ValueError):
         check_note("## A\n\nText.\n", "en", "fast", 90, "markdown")
+
+
+def details_of(results, name):
+    """Local helper: the details of the result called ``name``."""
+    return next(r.details for r in results if r.name == name)
+
+
+def test_marker_problem_reports_raw_line():
+    # line 1 heading; lines 2-8 a fenced block (five code lines); line 9 an unclosed marker
+    md = "# Title\n" + F + "python\n" + "x = 1\n" * 5 + F + "\n<!-- tal:check -->\n1. Q?\n"
+    assert md.split("\n")[8] == "<!-- tal:check -->"
+    results = check_note(md, "en", "deep", 90, "markdown")
+    assert details_of(results, "markers") == ["line 9: <!-- tal:check --> is never closed"]

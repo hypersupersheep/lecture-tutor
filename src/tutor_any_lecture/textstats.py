@@ -32,31 +32,42 @@ def is_cjk_language(lang: str) -> bool:
     return primary in CJK_LANGS
 
 
-def _strip_code(md: str) -> str:
-    """Drop fenced code blocks whole and delete inline code spans.
+def fenced_lines(lines: list[str]) -> list[bool]:
+    """For each line, whether it belongs to a fenced code block (its fences included).
 
-    A fence opens on a line matching ^\\s*(```|~~~) and closes on the next line that,
-    after its leading whitespace, starts with the same three characters (an indented
-    or longer fence closes it too), or at the end of the text.
+    The one fence rule of the package: a fence opens on a line matching ^\\s*(```|~~~)
+    and closes on the next line that, after its leading whitespace, starts with the same
+    three characters (an indented or longer fence closes it too), or at the end of the text.
     """
-    out: list[str] = []
+    out: list[bool] = []
     fence: str | None = None
-    for line in md.split("\n"):
+    for line in lines:
         if fence is not None:
+            out.append(True)
             if line.lstrip().startswith(fence):
                 fence = None
             continue
         m = _FENCE_OPEN_RE.match(line)
         if m:
             fence = m.group(1)
-            continue
-        out.append(INLINE_CODE_RE.sub("", line))
-    return "\n".join(out)
+        out.append(m is not None)
+    return out
 
 
-def _strip_markup(text: str) -> str:
+def strip_code(md: str) -> str:
+    """Drop fenced code blocks whole and delete inline code spans.
+
+    Every line outside a fenced block is kept, so the result has one line per such line.
+    """
+    lines = md.split("\n")
+    return "\n".join(
+        INLINE_CODE_RE.sub("", line) for line, fenced in zip(lines, fenced_lines(lines)) if not fenced
+    )
+
+
+def strip_markup(text: str) -> str:
     """Remove code, LaTeX and URLs; Markdown link text stays."""
-    text = _strip_code(text)
+    text = strip_code(text)
     text = DISPLAY_MATH_RE.sub(" ", text)
     text = BRACKET_MATH_RE.sub(" ", text)
     text = PAREN_MATH_RE.sub(" ", text)
@@ -68,8 +79,8 @@ def _strip_markup(text: str) -> str:
 
 
 def units(text: str, lang: str) -> int:
-    """CJK characters for CJK languages, words otherwise, after _strip_markup."""
-    clean = _strip_markup(text)
+    """CJK characters for CJK languages, words otherwise, after strip_markup."""
+    clean = strip_markup(text)
     if is_cjk_language(lang):
         return len(CJK_RE.findall(clean))
     return len(WORD_RE.findall(clean))

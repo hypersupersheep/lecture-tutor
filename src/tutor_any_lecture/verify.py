@@ -22,8 +22,8 @@ from .plan import load_plan
 from .slides import load_pages, max_label
 from .source import SourceInfo
 
-# _strip_code is package-internal: verify removes code exactly as check_note and units() do.
-from .textstats import BRACKET_MATH_RE, DISPLAY_MATH_RE, INLINE_MATH_RE, PAREN_MATH_RE, _strip_code
+# verify removes code exactly as check_note and units() do.
+from .textstats import BRACKET_MATH_RE, DISPLAY_MATH_RE, INLINE_MATH_RE, PAREN_MATH_RE, strip_code
 from .transcript import Transcript
 from .unit import UnitPaths
 
@@ -35,9 +35,10 @@ DURATION_UNKNOWN = "duration unknown: time citations not range-checked"
 SEVERITY = {"PASS": 0, "WARN": 1, "FAIL": 2}
 
 # "\$" is a literal currency sign: hidden behind this placeholder while math is removed.
-_DOLLAR_PLACEHOLDER = ""
+_DOLLAR_PLACEHOLDER = "\ue000"
 
-NOT_COVERED_SLIDE_RE = re.compile(r"slide\s+(\d+)", re.IGNORECASE)
+# "slide N" or "slides N–M" (en dash or hyphen-minus), any number on a line.
+NOT_COVERED_SLIDE_RE = re.compile(r"slides?\s+(\d+)(?:\s*[–-]\s*(\d+))?", re.IGNORECASE)
 
 # terms
 NOTE_CALLOUT_RE = re.compile(r"^\s*>\s*\[!NOTE\]", re.IGNORECASE)
@@ -64,7 +65,7 @@ def _code_and_math_free(md: str) -> tuple[str, str]:
     Code goes as in check_note: fenced blocks whole, inline spans deleted. Math goes as
     units() excludes it: $$…$$, \\[…\\], \\(…\\), then inline $…$ by the pandoc rule.
     """
-    code_free = _strip_code(md)
+    code_free = strip_code(md)
     text = code_free.replace("\\$", _DOLLAR_PLACEHOLDER)
     for pattern in (DISPLAY_MATH_RE, BRACKET_MATH_RE, PAREN_MATH_RE, INLINE_MATH_RE):
         text = pattern.sub(" ", text)
@@ -126,20 +127,22 @@ def _check_citations(cits, pages, duration, transcript, slides_only) -> dict:
     return _entry("citations", "PASS", [])
 
 
+def _span(start, end) -> tuple[int, int]:
+    """The inclusive slide range from ``start`` to ``end`` (or ``start`` alone), in either order."""
+    a = int(start)
+    b = int(end) if end else a
+    return min(a, b), max(a, b)
+
+
 def _check_coverage(cits, pages, md) -> dict:
-    covered: set[int] = set()
-    for c in cits:
-        if c.kind != "slide":
-            continue
-        a = int(c.start)
-        b = int(c.end) if c.end is not None else a
-        covered.update(range(min(a, b), max(a, b) + 1))
+    # Ranges are kept as (low, high) pairs, so a huge range costs nothing.
+    spans = [_span(c.start, c.end) for c in cits if c.kind == "slide"]
     not_covered = "\n".join(marker_sections(md)["not-covered"])
-    covered.update(int(n) for n in NOT_COVERED_SLIDE_RE.findall(not_covered))
+    spans += [_span(a, b) for a, b in NOT_COVERED_SLIDE_RE.findall(not_covered)]
     details = [
         f"slide {n} is neither cited nor listed in the not-covered section"
         for n in sorted({_slide_number(p) for p in pages})
-        if n not in covered
+        if not any(lo <= n <= hi for lo, hi in spans)
     ]
     return _entry("coverage", "FAIL" if details else "PASS", details)
 

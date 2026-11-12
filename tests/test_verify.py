@@ -188,3 +188,28 @@ def test_cli_table_ends_with_report(tmp_path, capsys):
     assert code == 1
     assert lines[0] == "FAIL  citations" and "      slide 9 > 3" in lines
     assert lines[-1] == "Automated checks failed."
+
+
+
+def five_slide_unit(tmp_path, not_covered):
+    """Local helper: the ok unit with slides 4 and 5 added and this not-covered line."""
+    u = copy_fixture("ok", tmp_path)
+    pages_path = UnitPaths(u).pages
+    pages = _read_json(pages_path)
+    pages += [{"n": n, "label": str(n), "text": f"Extra slide {n}", "image": None} for n in (4, 5)]
+    _write_json(pages_path, pages)
+    path = UnitPaths(u).explanation
+    md = path.read_text(encoding="utf-8")
+    assert "- slide 3\n" in md
+    path.write_text(md.replace("- slide 3\n", not_covered), encoding="utf-8", newline="\n")
+    return u
+
+
+def test_not_covered_accepts_ranges(tmp_path):
+    assert entry(run_verify(five_slide_unit(tmp_path / "a", "- slides 3–5\n")), "coverage") == {
+        "name": "coverage", "status": "PASS", "details": []}
+    assert entry(run_verify(five_slide_unit(tmp_path / "b", "- slide 3, slides 4-5\n")), "coverage")[
+        "status"] == "PASS"
+    assert entry(run_verify(five_slide_unit(tmp_path / "c", "")), "coverage") == {
+        "name": "coverage", "status": "FAIL", "details": [
+            f"slide {n} is neither cited nor listed in the not-covered section" for n in (3, 4, 5)]}
