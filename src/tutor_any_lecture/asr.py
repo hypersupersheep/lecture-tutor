@@ -15,11 +15,12 @@ import os
 import platform
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 from typing import Callable
 
 from .ffmpeg import ffmpeg_exe, stderr_tail
-from .transcript import Segment, Transcript, primary_subtag
+from .transcript import AcquireError, Segment, Transcript, primary_subtag
 
 GIB = 1024 ** 3
 
@@ -45,7 +46,7 @@ def _load_audio_array(audio: Path):
     )
     if proc.returncode != 0:
         # Never fall through to an empty array: a backend would turn it into zero segments.
-        raise RuntimeError(f"ffmpeg could not decode {audio}:\n{stderr_tail(proc.stderr)}")
+        raise AcquireError(f"ffmpeg could not decode {audio}:\n{stderr_tail(proc.stderr)}")
     return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
 
 
@@ -98,6 +99,9 @@ BACKENDS: dict[str, Callable] = {
     "mlx": _mlx_backend,
     "faster": _faster_backend,
 }
+
+# The distribution each real backend needs; its import name is the same with "_" for "-".
+BACKEND_PACKAGES: dict[str, str] = {"mlx": "mlx-whisper", "faster": "faster-whisper"}
 
 
 # --- choosing a backend and a model ---------------------------------------------
@@ -167,6 +171,10 @@ def resolve_backend(backend: str | None = None, model: str | None = None) -> tup
     name = select_backend() if backend is None else backend
     if name not in BACKENDS:
         raise BackendMissing(f"unknown ASR backend {name!r}; choose one of: {', '.join(sorted(BACKENDS))}")
+    package = BACKEND_PACKAGES.get(name)
+    # Checked here, in the parent, so a missing package fails before any audio work or child process.
+    if package is not None and not _installed(package.replace("-", "_")):
+        raise BackendMissing(f"ASR backend {name!r} is not installed: pip install {package}")
     if model is None and name in ("mlx", "faster"):
         model = select_model(name)
     return name, model
@@ -186,9 +194,15 @@ def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> N
     # The command's stdout carries one JSON object; whatever a backend prints goes to stderr.
     sys.stdout = sys.stderr
     try:
+        # Also file descriptor 1, which native code (C, C++, Metal) writes to directly.
+        os.dup2(2, 1)
+    except OSError:
+        pass
+    try:
         conn.send(("ok", fn(audio, model, **kwargs)))
     except Exception as e:  # every backend failure goes back to the parent as a message
-        conn.send(("err", f"{type(e).__name__}: {e}"))
+        tail = "\n".join(traceback.format_exc().splitlines()[-5:])
+        conn.send(("err", f"{type(e).__name__}: {e}\n{tail}"))
     finally:
         conn.close()
 
@@ -218,10 +232,12 @@ def transcribe(
     ctx = multiprocessing.get_context("spawn")
     reader, writer = ctx.Pipe(duplex=False)
     proc = ctx.Process(target=_child, args=(fn, str(audio), model, kwargs, writer))
-    proc.start()
-    # Close the parent's copy of the child's end, so a child that dies gives EOF, not a hang.
-    writer.close()
+    started = False
     try:
+        proc.start()  # inside the try: a failed start still closes both pipe ends
+        started = True
+        # Close the parent's copy of the child's end, so a child that dies gives EOF, not a hang.
+        writer.close()
         if not reader.poll(budget_minutes * 60):
             raise BudgetExceeded(
                 f"transcription did not finish within {budget_minutes:g} minutes; "
@@ -231,15 +247,17 @@ def transcribe(
             status, payload = reader.recv()  # recv before join: a large reply would block the child
         except EOFError:
             proc.join()
-            raise RuntimeError(f"the ASR process exited without a result (exit code {proc.exitcode})") from None
+            raise AcquireError(f"the ASR process exited without a result (exit code {proc.exitcode})") from None
         proc.join(timeout=30)
     finally:
+        writer.close()  # closing twice is a no-op
         reader.close()
-        if proc.is_alive():
-            proc.kill()
-        proc.join()
+        if started:
+            if proc.is_alive():
+                proc.kill()
+            proc.join()
 
     if status != "ok":
-        raise RuntimeError(f"ASR backend {name!r} failed: {payload}")
+        raise AcquireError(f"ASR backend {name!r} failed: {payload}")
     reported = lang if lang is not None else primary_subtag(payload.language)
     return Transcript(payload.segments, reported)

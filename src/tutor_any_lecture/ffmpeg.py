@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .transcript import AcquireError
+
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)")
 
 
@@ -48,4 +50,4 @@ def extract_audio(src: Path, dst_wav: Path) -> None:
         capture_output=True,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg could not extract audio from {src}:\n{stderr_tail(proc.stderr)}")
+        raise AcquireError(f"ffmpeg could not extract audio from {src}:\n{stderr_tail(proc.stderr)}")

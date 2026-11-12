@@ -16,10 +16,6 @@ from ..source import SourceInfo, sha256_file
 from ..transcript import EmptyTranscript, Health, health
 from ..unit import UnitPaths
 
-# The distribution whose version source.json records for each real backend.
-_BACKEND_PACKAGES = {"mlx": "mlx-whisper", "faster": "faster-whisper"}
-
-
 def _refuse_overwrite(unit: Path, force: bool) -> None:
     transcript = UnitPaths(unit).transcript
     # Keyed on transcript.json only: a slides-only source.json may be replaced freely.
@@ -59,12 +55,14 @@ def acquire_local(
     _refuse_overwrite(unit, force)
     file = Path(file)
     _require_file(file)
+    # Before the extraction, so a missing backend costs no audio work.
+    backend, model = asr.resolve_backend()
     # Outside the unit and the user's folder, and removed also when transcription fails.
     tmp = Path(tempfile.mkdtemp(prefix="tutor-any-lecture-"))
     try:
         wav = tmp / "audio.wav"
         extract_audio(file, wav)
-        return _transcribe_into_unit(wav, file, unit, profile, budget_minutes, None, None)
+        return _transcribe_into_unit(wav, file, unit, profile, budget_minutes, backend, model)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -109,7 +107,7 @@ def _transcribe_into_unit(
 
 def _tool_versions(name: str, model: str | None) -> dict:
     versions = {"asr_backend": name, "asr_model": model}
-    package = _BACKEND_PACKAGES.get(name)
+    package = asr.BACKEND_PACKAGES.get(name)
     if package is not None:
         try:
             versions[package] = importlib.metadata.version(package)

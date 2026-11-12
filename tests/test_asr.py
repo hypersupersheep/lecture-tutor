@@ -1,4 +1,5 @@
 import functools
+import importlib.util
 import json
 import os
 import subprocess
@@ -7,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from tutor_any_lecture import asr
+from tutor_any_lecture import asr, ffmpeg
 from tutor_any_lecture.asr import (BackendMissing, BudgetExceeded, default_budget_minutes,
                                    select_model, transcribe)
-from tutor_any_lecture.ffmpeg import ffmpeg_exe
-from tutor_any_lecture.transcript import Segment, Transcript
+from tutor_any_lecture.ffmpeg import extract_audio, ffmpeg_exe
+from tutor_any_lecture.transcript import AcquireError, Segment, Transcript
 
 PROMPT = "Black-Scholes, martingale"
 
@@ -43,8 +44,34 @@ def _chatty_backend(audio, model, **kwargs):
     return Transcript([Segment(0.0, 1.0, "x")], None)
 
 
+def _boom(audio, model, **kwargs):
+    raise RuntimeError("boom")
+
+
+def _native_noise(audio, model, **kwargs):
+    os.write(1, b"native noise\n")   # what native code does: bypasses sys.stdout
+    return Transcript([Segment(0.0, 1.0, "x")], None)
+
+
+def fake_failing_ffmpeg(monkeypatch):
+    """Local helper: every ffmpeg run exits 1 with an error on stderr."""
+    def run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, b"", b"Invalid data found when processing input\n")
+
+    monkeypatch.setattr(ffmpeg.subprocess, "run", run)
+
+
+def no_child_process(monkeypatch):
+    """Local helper: records any attempt to set up the ASR child process."""
+    started = []
+    monkeypatch.setattr(asr.multiprocessing, "get_context", lambda *a, **k: started.append(a) or pytest.fail("child started"))
+    return started
+
+
 def run_with_fake_backend(monkeypatch, name="fake"):
     monkeypatch.setitem(asr.BACKENDS, name, _echo_backend)
+    # A real backend name is checked for its package; the fake stands in for it.
+    monkeypatch.setattr(asr, "_installed", lambda module: True)
     t = transcribe(Path("unused.wav"), None, PROMPT, budget_minutes=1, backend=name, model="x")
     return json.loads(t.segments[0].text)
 
@@ -125,3 +152,59 @@ def test_load_audio_array_float32_16k(tmp_path):
     assert arr.dtype == np.float32 and arr.ndim == 1
     assert abs(arr.size - 32000) <= 800            # 2 s at 16 kHz = 32000 samples, within 0.05 s
     assert 0.0 < float(np.abs(arr).max()) <= 1.0
+
+
+def test_extract_audio_failure_is_acquire_error(monkeypatch, tmp_path):
+    fake_failing_ffmpeg(monkeypatch)
+    with pytest.raises(AcquireError) as exc:
+        extract_audio(tmp_path / "in.mp4", tmp_path / "out.wav")
+    assert "could not extract audio" in str(exc.value) and "Invalid data found" in str(exc.value)
+
+
+def test_audio_decode_failure_is_acquire_error(monkeypatch, tmp_path):
+    pytest.importorskip("numpy")
+    fake_failing_ffmpeg(monkeypatch)
+    with pytest.raises(AcquireError, match="could not decode"):
+        asr._load_audio_array(tmp_path / "in.wav")
+
+
+def test_backend_failure_is_acquire_error(monkeypatch):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _boom)
+    with pytest.raises(AcquireError) as exc:
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+    assert "boom" in str(exc.value)
+
+
+def test_child_exit_without_reply_is_acquire_error(monkeypatch):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _dying_backend)
+    with pytest.raises(AcquireError, match="without a result"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+
+
+def test_named_backend_not_installed_is_backend_missing(monkeypatch):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs: None)
+    started = no_child_process(monkeypatch)
+    with pytest.raises(BackendMissing) as exc:
+        asr.resolve_backend("faster")
+    assert str(exc.value) == "ASR backend 'faster' is not installed: pip install faster-whisper"
+    with pytest.raises(BackendMissing) as exc:
+        asr.resolve_backend("mlx")
+    assert str(exc.value) == "ASR backend 'mlx' is not installed: pip install mlx-whisper"
+    with pytest.raises(BackendMissing, match="faster-whisper"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    assert started == []
+
+
+def test_child_error_carries_traceback_tail(monkeypatch):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _boom)
+    with pytest.raises(AcquireError) as exc:
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+    assert "_boom" in str(exc.value)
+
+
+def test_child_native_stdout_goes_to_stderr(monkeypatch, capfd):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _native_noise)
+    t = transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+    assert [s.text for s in t.segments] == ["x"]
+    captured = capfd.readouterr()
+    assert "native noise" not in captured.out and "native noise" in captured.err

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tutor_any_lecture import asr, slides
+from tutor_any_lecture.acquire import local
 from tutor_any_lecture.acquire.local import acquire_local, transcribe_audio
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.ffmpeg import ffmpeg_exe
@@ -12,6 +13,11 @@ from tutor_any_lecture.profile import Profile
 from tutor_any_lecture.source import SourceInfo, sha256_file
 from tutor_any_lecture.transcript import EmptyTranscript, Segment, Transcript
 from tutor_any_lecture.unit import UnitPaths
+
+
+def _boom(audio, model, **kwargs):
+    # Module-level, so the spawn child can unpickle it.
+    raise RuntimeError("boom")
 
 
 def make_tone(folder):
@@ -179,3 +185,47 @@ def test_cli_budget_exceeded_exits_3(monkeypatch, tmp_path, tmp_cfg):
     assert main(["acquire", "local", "--file", str(src), "--unit", str(unit)]) == 3
     assert not UnitPaths(unit).transcript.exists()
     assert fake.calls and not fake.calls[0]["audio"].parent.exists()   # temp audio removed on failure too
+
+
+def test_cli_local_backend_failure_is_error_json(monkeypatch, tmp_path, tmp_cfg, capsys):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    # The real asr.transcribe and its child process, with a backend that raises.
+    monkeypatch.setitem(asr.BACKENDS, "fake", _boom)
+    monkeypatch.setattr(asr, "resolve_backend", lambda backend=None, model=None: ("fake", "x"))
+    code = main(["acquire", "local", "--file", str(src), "--unit", str(unit)])
+    out = capsys.readouterr().out
+    assert code == 1
+    lines = out.splitlines()
+    assert len(lines) == 1
+    obj = json.loads(lines[0])
+    assert obj["status"] == "error" and "boom" in obj["message"]
+    assert not UnitPaths(unit).transcript.exists()
+
+
+@pytest.mark.parametrize("command", ["transcribe", "acquire local"])
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+def test_cli_budget_minutes_must_be_positive(monkeypatch, tmp_path, tmp_cfg, command, value):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    flag = "--audio" if command == "transcribe" else "--file"
+    with pytest.raises(SystemExit) as exc:
+        main([*command.split(), flag, str(src), "--unit", str(unit), "--budget-minutes", value])
+    assert exc.value.code == 2
+    assert not fake.calls and not UnitPaths(unit).transcript.exists()
+
+
+def test_local_backend_missing_before_extraction(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    extracted = []
+    monkeypatch.setattr(local, "extract_audio", lambda src, dst: extracted.append(dst))
+
+    def missing(backend=None, model=None):
+        raise asr.BackendMissing("no ASR backend is installed")
+
+    monkeypatch.setattr(asr, "resolve_backend", missing)
+    with pytest.raises(asr.BackendMissing):
+        acquire_local(src, unit, Profile(), False)
+    assert extracted == [] and not unit.exists()

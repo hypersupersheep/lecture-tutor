@@ -192,15 +192,15 @@ def _cmd_slides_suspects(args) -> int:
     return EXIT_OK
 
 
-def _positive_seconds(value: str) -> float:
-    """argparse type for --duration: a positive, finite number of seconds."""
+def _positive_number(value: str) -> float:
+    """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
-        seconds = float(value)
+        number = float(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"not a number of seconds: {value!r}") from None
-    if not math.isfinite(seconds) or seconds <= 0:
-        raise argparse.ArgumentTypeError(f"must be a positive, finite number of seconds: {value!r}")
-    return seconds
+        raise argparse.ArgumentTypeError(f"not a number: {value!r}") from None
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive, finite number: {value!r}")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -238,7 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp = acquire_sub.add_parser("import", help="import a transcript file (.srt, .vtt, .json, .txt)")
     imp.add_argument("--file", required=True, help="the transcript file")
     imp.add_argument("--unit", required=True, help="the unit folder")
-    imp.add_argument("--duration", type=_positive_seconds, default=None, help="the lecture length in seconds, if known")
+    imp.add_argument("--duration", type=_positive_number, default=None, help="the lecture length in seconds, if known")
     imp.add_argument("--force", action="store_true", help="replace an existing transcript")
     imp.set_defaults(func=_cmd_acquire_import)
     pan = acquire_sub.add_parser("panopto", help="import the JSON that panopto_extract.js returns")
@@ -250,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     loc.add_argument("--file", required=True, help="the video or audio file")
     loc.add_argument("--unit", required=True, help="the unit folder")
     loc.add_argument("--force", action="store_true", help="replace an existing transcript")
-    loc.add_argument("--budget-minutes", type=float, default=None,
+    loc.add_argument("--budget-minutes", type=_positive_number, default=None,
                      help="stop ASR after this many minutes (default: max(30, 2 x the media length))")
     loc.set_defaults(func=_cmd_acquire_local)
     url = acquire_sub.add_parser("url", help="get a public video's captions, or (with consent) its audio")
@@ -267,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--unit", required=True, help="the unit folder")
     tr.add_argument("--backend", default=None, help="the ASR backend (mlx or faster; default: chosen for this machine)")
     tr.add_argument("--model", default=None, help="the ASR model (default: chosen for the backend and machine)")
-    tr.add_argument("--budget-minutes", type=float, default=None,
+    tr.add_argument("--budget-minutes", type=_positive_number, default=None,
                     help="stop ASR after this many minutes (default: max(30, 2 x the media length))")
     tr.add_argument("--force", action="store_true", help="replace an existing transcript")
     tr.set_defaults(func=_cmd_transcribe)
