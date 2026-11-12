@@ -141,3 +141,45 @@ def test_cli_duration_must_be_positive(tmp_path, value):
         main(["acquire", "import", "--file", str(f), "--unit", str(unit), "--duration", value])
     assert exc.value.code == 2
     assert not UnitPaths(unit).transcript.exists()
+
+
+def assert_error_json(out):
+    """Local helper: stdout is exactly one line, a JSON object with status error and a message."""
+    lines = out.splitlines()
+    assert len(lines) == 1
+    obj = json.loads(lines[0])
+    assert isinstance(obj, dict) and obj["status"] == "error"
+    assert isinstance(obj["message"], str) and obj["message"].strip() != ""
+
+
+def run_import_of_bad_file(tmp_path, capsys, name, data):
+    """Local helper: import a bad file from a spaced CJK folder; returns (code, stdout, unit)."""
+    folder = tmp_path / "课程 资料"
+    folder.mkdir()
+    f = folder / name
+    f.write_bytes(data)
+    unit = folder / "第1周"
+    code = main(["acquire", "import", "--file", str(f), "--unit", str(unit)])
+    return code, capsys.readouterr().out, unit
+
+
+def test_cli_import_malformed_json_is_error_json(tmp_path, capsys):
+    code, out, unit = run_import_of_bad_file(tmp_path, capsys, "bad.json", "{not json".encode("utf-8"))
+    assert code == 1
+    assert_error_json(out)
+    assert not UnitPaths(unit).transcript.exists()
+
+
+def test_cli_import_non_utf8_is_error_json(tmp_path, capsys):
+    code, out, unit = run_import_of_bad_file(tmp_path, capsys, "bad.srt", b"\xff\xfe\x00\x01")
+    assert code == 1
+    assert_error_json(out)
+    assert not UnitPaths(unit).transcript.exists()
+
+
+def test_cli_import_json_without_end_is_error_json(tmp_path, capsys):
+    data = json.dumps([{"start": 0, "text": "a"}]).encode("utf-8")
+    code, out, unit = run_import_of_bad_file(tmp_path, capsys, "w.json", data)
+    assert code == 1
+    assert_error_json(out)
+    assert not UnitPaths(unit).transcript.exists()

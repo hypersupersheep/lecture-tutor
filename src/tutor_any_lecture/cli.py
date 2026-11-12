@@ -30,6 +30,7 @@ EXIT_BY_ERROR: dict[str, int] = {
     "ProfileError": EXIT_FAIL,
     "PlanError": EXIT_FAIL,
     "FileNotFoundError": EXIT_FAIL,
+    "AcquireError": EXIT_FAIL,
 }
 
 
@@ -78,14 +79,16 @@ def _cmd_profile_set(args) -> int:
 def _run_acquire(call) -> int:
     """Run one acquisition and print its one-line JSON result.
 
-    ``call`` takes no arguments and returns a ``Health``. Exceptions other than
-    ``EmptyTranscript`` propagate to ``main``, which maps them through ``EXIT_BY_ERROR``.
+    ``call`` takes no arguments and returns a ``Health``. A ``ValueError`` (an empty
+    transcript, malformed or non-UTF-8 input) or an ``AcquireError`` (a failed tool or
+    ASR backend) becomes ``{"status": "error", ...}``. Other exceptions propagate to
+    ``main``, which maps them through ``EXIT_BY_ERROR``.
     """
-    from .transcript import EmptyTranscript
+    from .transcript import AcquireError
 
     try:
         h = call()
-    except EmptyTranscript as e:
+    except (ValueError, AcquireError) as e:
         print(json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False))
         return EXIT_FAIL
     status = "ok" if h.ok else "unhealthy"

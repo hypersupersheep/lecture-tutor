@@ -39,7 +39,12 @@ def test_exit_table():
         "ProfileError": 1,
         "PlanError": 1,
         "FileNotFoundError": 1,
+        "AcquireError": 1,
     }
+
+
+def test_acquire_error_is_in_the_exit_table():
+    assert cli.EXIT_BY_ERROR["AcquireError"] == cli.EXIT_FAIL
 
 
 def test_not_implemented_returns_usage(capsys):

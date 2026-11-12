@@ -184,3 +184,29 @@ def test_no_literal_bom_in_python_files():
 def test_transcript_pickles():
     t = Transcript([Segment(0.0, 1.0, "hi", [{"word": "hi", "start": 0.0, "end": 1.0}])], "en")
     assert pickle.loads(pickle.dumps(t)) == t
+
+
+def test_whisper_json_missing_times_is_value_error():
+    with pytest.raises(ValueError) as exc:
+        parse_whisper_json([{"start": 0, "text": "a"}])
+    assert str(exc.value) == "segment 1 has no start or end time"
+
+
+@pytest.mark.parametrize(
+    "obj, message",
+    [
+        ({"segments": 5}, "expected a list of segments"),
+        ([{"start": 0, "end": 1, "text": "a"}, 7], "segment 2 is not an object"),
+        ([{"start": "x", "end": 1, "text": "a"}], "segment 1 has a start or end time that is not a number"),
+        ([{"start": 0, "end": None, "text": "a"}], "segment 1 has no start or end time"),
+    ],
+    ids=["segments-not-list", "item-not-object", "time-not-number", "end-null"],
+)
+def test_whisper_json_malformed_is_value_error(obj, message):
+    with pytest.raises(ValueError) as exc:
+        parse_whisper_json(obj)
+    assert str(exc.value) == message
+
+
+def test_whisper_json_item_without_text_is_skipped_before_time_check():
+    assert parse_whisper_json([{"start": 0}, {"start": 0, "end": 1, "text": "a"}]) == [Segment(0.0, 1.0, "a")]

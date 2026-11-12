@@ -13,6 +13,10 @@ class EmptyTranscript(ValueError):
     """An input file held no timed segment."""
 
 
+class AcquireError(RuntimeError):
+    """An input could not be read, or an external tool or ASR backend failed."""
+
+
 @dataclass
 class Segment:
     start: float
@@ -161,14 +165,29 @@ def parse_stamped_txt(text: str, duration: float | None) -> list[Segment]:
 
 
 def parse_whisper_json(obj) -> list[Segment]:
-    """Accepts ``{"segments": [...]}`` or a bare list of segment objects."""
+    """Accepts ``{"segments": [...]}`` or a bare list of segment objects.
+
+    Malformed input raises ``ValueError`` (never ``KeyError`` or ``TypeError``), so the
+    CLI reports it as one error line. Items are counted from 1 in the messages.
+    """
     items = obj.get("segments", []) if isinstance(obj, dict) else obj
+    if not isinstance(items, list):
+        raise ValueError("expected a list of segments")
     segments: list[Segment] = []
-    for item in items:
-        text = (item.get("text") or "").strip()
+    for i, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"segment {i} is not an object")
+        text = item.get("text")
+        text = text.strip() if isinstance(text, str) else ""
         if not text:
             continue
-        segments.append(Segment(float(item["start"]), float(item["end"]), text, item.get("words")))
+        if item.get("start") is None or item.get("end") is None:
+            raise ValueError(f"segment {i} has no start or end time")
+        try:
+            start, end = float(item["start"]), float(item["end"])
+        except (TypeError, ValueError):
+            raise ValueError(f"segment {i} has a start or end time that is not a number") from None
+        segments.append(Segment(start, end, text, item.get("words")))
     return segments
 
 
