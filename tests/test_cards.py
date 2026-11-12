@@ -255,3 +255,14 @@ def test_cli_add_misses_takes_no_course(tmp_path):
     with pytest.raises(SystemExit) as e:
         main(["cards", "add-misses", "--unit", str(u), "--course", "C", "--workspace", str(ws)])
     assert e.value.code == 2
+
+
+def test_cli_cards_not_utf8_is_one_line(tmp_path, capsys):
+    u = unit_with_cards(tmp_path, n=3)
+    UnitPaths(u).cards_json.write_bytes(b"\xff\xfe")
+    assert main(["cards", "export", "--unit", str(u)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+    assert captured.err.startswith("cards.json")
+    assert not UnitPaths(u).cards_tsv.exists()

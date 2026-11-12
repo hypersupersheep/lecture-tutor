@@ -282,3 +282,57 @@ def test_validate_cli_exit_codes(tmp_path):
     assert main(["items", "validate", "--unit", str(u)]) == 0
     write_json(UnitPaths(u).items, items_to_json(ITEMS_COPYING_NOTE))
     assert main(["items", "validate", "--unit", str(u)]) == 1
+
+
+# ---- field types and unreadable files (Task 21) -----------------------------
+
+
+def one_line_error(capsys):
+    """Local helper: the captured stderr, asserting it is exactly one line and stdout is empty."""
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+    return captured.err
+
+
+def items_json_with(field, value):
+    """Local helper: the on-disk ITEMS with one field of tracked item c1-A replaced."""
+    obj = items_to_json(ITEMS)
+    obj["tracked"]["c1"]["A"][field] = value
+    return obj
+
+
+def test_load_items_rejects_null_citation(tmp_path):
+    path = tmp_path / "items.json"
+    write_json(path, items_json_with("citation", None))
+    with pytest.raises(ValueError) as e:
+        load_items(path)
+    assert str(e.value).endswith("citation must be a string")
+
+
+def test_load_items_rejects_non_string_prompt(tmp_path):
+    path = tmp_path / "items.json"
+    write_json(path, items_json_with("prompt", 5))
+    with pytest.raises(ValueError):
+        load_items(path)
+
+
+def test_cli_items_validate_bad_types_is_one_line(tmp_path, capsys):
+    u = unit_with_items(tmp_path)
+    write_json(UnitPaths(u).items, items_json_with("citation", None))
+    assert main(["items", "validate", "--unit", str(u)]) == 1
+    assert one_line_error(capsys).startswith("items.json:")
+
+
+def test_cli_items_not_utf8_is_one_line(tmp_path, capsys):
+    u = unit_with_items(tmp_path)
+    UnitPaths(u).items.write_bytes(b"\xff\xfe")
+    assert main(["items", "validate", "--unit", str(u)]) == 1
+    assert one_line_error(capsys).startswith("items.json")
+
+
+def test_cli_assignment_not_utf8_is_one_line(tmp_path, capsys):
+    u = unit_with_items(tmp_path)
+    UnitPaths(u).assignment.write_bytes(b"\xff\xfe")
+    assert main(["items", "next", "--unit", str(u), "--phase", "pre"]) == 1
+    assert one_line_error(capsys).startswith("assignment.json")

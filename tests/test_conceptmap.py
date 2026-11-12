@@ -151,3 +151,30 @@ def test_cli_map_invalid_json(tmp_path, capsys):
     assert main(["map", "mermaid", "--unit", str(unit)]) == 1
     assert "not valid JSON" in capsys.readouterr().err
     assert not (unit / "overview.mmd").exists()
+
+
+# ---- unreadable files and exit codes (Task 21) ------------------------------
+
+
+def test_cli_map_not_utf8_is_one_line(tmp_path, capsys):
+    unit = tmp_path / "课程 资料" / "第1周"
+    unit.mkdir(parents=True)
+    (unit / "map.json").write_bytes(b"\xff\xfe")
+    for command in ("validate", "mermaid"):
+        assert main(["map", command, "--unit", str(unit)]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+        assert captured.err.startswith("map.json")
+    assert not (unit / "overview.mmd").exists()
+
+
+def test_cli_map_mermaid_exit_codes(tmp_path):
+    broken = tmp_path / "broken"
+    write_map(broken, {"nodes": [{"id": "a", "label": "A", "type": "definition"}]})
+    (broken / "map.json").write_text('{"nodes": [', encoding="utf-8", newline="\n")
+    assert main(["map", "mermaid", "--unit", str(broken)]) == 1
+    ok = tmp_path / "ok"
+    write_map(ok, map_with_edge(verb="uses"))
+    assert main(["map", "mermaid", "--unit", str(ok), "--view", "nope"]) == 2
+    assert not (broken / "overview.mmd").exists() and not (ok / "overview.mmd").exists()

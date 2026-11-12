@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .checks import CheckResult
 from .items import find_item, load_items
-from .plan import load_plan
+from .plan import load_plan, read_json
 from .progress import load_attempts
 from .textstats import char_jaccard
 from .unit import UnitPaths
@@ -75,7 +75,7 @@ def _card(obj, n: int) -> Card:
 
 def load_cards(path: Path) -> list[Card]:
     """The cards of cards.json in file order. A missing file raises FileNotFoundError; a bad one, ValueError."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))  # JSONDecodeError is a ValueError
+    data = read_json(path, "cards.json")
     if not isinstance(data, list):
         raise ValueError("cards.json: the top level must be a list of card objects")
     return [_card(obj, n) for n, obj in enumerate(data)]

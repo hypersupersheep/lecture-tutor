@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .checks import CheckResult
 from .notecheck import marker_sections, strip_marker_sections
-from .plan import Plan, load_plan
+from .plan import Plan, load_plan, read_json
 from .textstats import containment
 from .unit import UnitPaths
 
@@ -44,6 +44,8 @@ class Item:
 
 
 ITEM_FIELDS = frozenset(f.name for f in dataclasses.fields(Item))
+# Fields the checks, the progress log and the cards use as text.
+STRING_FIELDS = ("id", "concept", "prompt", "answer", "rubric", "citation")
 
 
 # ---------------------------------------------------------------- loading
@@ -56,6 +58,9 @@ def _item(obj, where: str) -> Item:
         extra = sorted(set(obj) - ITEM_FIELDS)
         missing = sorted(ITEM_FIELDS - set(obj))
         raise ValueError(f"items.json: {where} has wrong keys (missing: {missing}, unexpected: {extra})")
+    for field in STRING_FIELDS:
+        if not isinstance(obj[field], str):
+            raise ValueError(f"items.json: item {obj['id']!r}: {field} must be a string")
     if obj["kind"] not in KINDS:
         raise ValueError(f"items.json: {where} has unknown kind {obj['kind']!r}")
     return Item(**obj)
@@ -63,25 +68,19 @@ def _item(obj, where: str) -> Item:
 
 def load_items(path) -> dict:
     """Read and check items.json. A missing file raises FileNotFoundError; a bad one, ValueError."""
-    text = Path(path).read_text(encoding="utf-8")
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"items.json: invalid JSON: {e}") from None
+    data = read_json(path, "items.json")
     if not isinstance(data, dict) or not isinstance(data.get("tracked"), dict) or not isinstance(
         data.get("practice"), list
     ):
         raise ValueError('items.json: the top level must be an object with a "tracked" object and a "practice" list')
 
     out: dict = {"tracked": {}, "practice": []}
-    seen: set = set()
+    seen: set[str] = set()
 
     def note_id(it: Item) -> None:
-        # Ids may be any JSON value here; repr keeps unhashable ones comparable.
-        key = repr(it.id)
-        if key in seen:
+        if it.id in seen:
             raise ValueError(f"items.json: item id {it.id!r} occurs twice")
-        seen.add(key)
+        seen.add(it.id)
 
     for cid, variants in data["tracked"].items():
         if not isinstance(variants, dict):
@@ -300,10 +299,7 @@ def next_items(items: dict, assignment, phase: str) -> list[Item]:
 
 
 def _read_assignment(path: Path):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise ValueError(f"assignment.json: invalid JSON: {e}") from None
+    return read_json(path, "assignment.json")
 
 
 def validate_unit(unit: Path) -> list[CheckResult]:

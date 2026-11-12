@@ -4,6 +4,7 @@ from datetime import date, datetime
 import pytest
 
 from tutor_any_lecture.cli import main
+from tutor_any_lecture.plan import PlanError
 from tutor_any_lecture.profile import set_value
 from tutor_any_lecture.progress import (
     Attempt,
@@ -296,3 +297,35 @@ def test_cli_render_writes_page(tmp_path, capsys):
     page = tmp_path / "progress" / "C.md"
     assert page.read_text(encoding="utf-8").splitlines()[0] == "# Progress — C"
     assert capsys.readouterr().out.strip() == str(page)
+
+
+# ---- unsafe names and malformed files (Task 21) -----------------------------
+
+
+def test_progress_refuses_unsafe_course(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    with pytest.raises(PlanError):
+        log_attempt(attempt(course="../x"), ws)
+    with pytest.raises(PlanError):
+        render_progress("../x", ws, date(2026, 11, 20))
+    with pytest.raises(PlanError):
+        load_attempts("../x", ws)
+    outside = [p for p in tmp_path.rglob("*") if p != ws and ws / "progress" not in (p, *p.parents)]
+    assert outside == []
+
+
+def test_cli_progress_log_malformed_items_is_one_line(tmp_path, capsys):
+    u = unit_dir(tmp_path)
+    (u / "items.json").write_text("{", encoding="utf-8", newline="\n")
+    ws = tmp_path / "ws"
+    code = main([
+        "progress", "log", "--unit", str(u), "--item", "c1-B", "--phase", "post",
+        "--score", "1", "--confidence", "2", "--workspace", str(ws),
+    ])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+    assert captured.err.startswith("items.json:")
+    assert not ws.exists()

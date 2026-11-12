@@ -10,11 +10,51 @@ from pathlib import Path
 GOALS = ("deep", "exam", "quick")
 OUTPUT_TARGETS = ("markdown", "obsidian")
 TRACKED_MAX = 5
-LANGUAGE_RE = re.compile(r"^[a-z]{2,3}$")
+LANGUAGE_RE = re.compile(r"[a-z]{2,3}")  # applied with fullmatch
+# Characters no folder name may hold on Windows, macOS or Linux; below U+0020 is checked apart.
+UNSAFE_NAME_CHARS = frozenset('/\\:*?"<>|')
 
 
 class PlanError(Exception):
     """plan.json is malformed. The message names the offending key or value."""
+
+
+def read_json(path, name: str, error: type[Exception] = ValueError):
+    """Parse the agent-written JSON file ``path``, whose file name is ``name``.
+
+    A missing file raises FileNotFoundError. Bytes that are not UTF-8 and invalid JSON
+    raise ``error`` with a one-line message that starts with ``name``.
+    """
+    raw = Path(path).read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise error(f"{name}: not UTF-8 text: {e}") from None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise error(f"{name}: not valid JSON: {e}") from None
+
+
+def safe_name(value: str, what: str) -> str:
+    """Return ``value`` when it can be a folder or file name on every platform, else raise PlanError.
+
+    ``what`` is "course" or "unit": both become folder and file names under the workspace.
+    """
+    ok = (
+        isinstance(value, str)
+        and value != ""
+        and value == value.strip()
+        and not any(c in UNSAFE_NAME_CHARS or c < " " for c in value)
+        and value not in (".", "..")
+        and not value.endswith(".")
+    )
+    if not ok:
+        raise PlanError(
+            f"{what} name {value!r} cannot be a folder name: "
+            "avoid / \\ : * ? \" < > | and leading or trailing spaces or dots"
+        )
+    return value
 
 
 @dataclass
@@ -44,7 +84,7 @@ def _check_language(key: str, value) -> None:
         raise PlanError(f"plan.json: {key} must be a string, got {value!r}")
     if value.lower() == "auto":
         raise PlanError(f"plan.json: {key} must be a concrete language code, not {value!r}")
-    if not LANGUAGE_RE.match(value):
+    if not LANGUAGE_RE.fullmatch(value):
         raise PlanError(f"plan.json: {key} must be a lowercase primary subtag such as 'en' or 'zh', got {value!r}")
 
 
@@ -57,6 +97,8 @@ def _check_tracked(concepts, tracked) -> None:
     for n, concept in enumerate(concepts):
         if not isinstance(concept, dict) or "id" not in concept:
             raise PlanError(f"plan.json: concept {n} has no \"id\"")
+        if not isinstance(concept["id"], str):
+            raise PlanError(f"plan.json: concept {n} id must be a string, got {concept['id']!r}")
         ids.append(concept["id"])
     distinct: list = []
     for cid in tracked:
@@ -72,17 +114,15 @@ def _check_tracked(concepts, tracked) -> None:
 
 def load_plan(path) -> Plan:
     """Read and check plan.json. A missing file raises FileNotFoundError; a bad one, PlanError."""
-    text = Path(path).read_text(encoding="utf-8")
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise PlanError(f"plan.json: invalid JSON: {e}") from None
+    data = read_json(path, "plan.json", PlanError)
     if not isinstance(data, dict):
         raise PlanError("plan.json: the top level must be an object")
     missing = [key for key in FIELDS if key not in data]
     if missing:
         raise PlanError(f"plan.json: missing key(s): {', '.join(missing)}")
 
+    safe_name(data["course"], "course")
+    safe_name(data["unit"], "unit")
     _check_language("note_language", data["note_language"])
     _check_language("lecture_language", data["lecture_language"])
     if data["goal"] not in GOALS:
@@ -95,6 +135,9 @@ def load_plan(path) -> Plan:
     # bool is a subclass of int, but true/false is not a duration.
     if duration is not None and (isinstance(duration, bool) or not isinstance(duration, (int, float))):
         raise PlanError(f"plan.json: duration_s must be a number or null, got {duration!r}")
+    outputs = data["outputs"]
+    if not isinstance(outputs, list) or not all(isinstance(x, str) for x in outputs):
+        raise PlanError(f"plan.json: outputs must be a list of strings, got {outputs!r}")
     _check_tracked(data["concepts"], data["tracked"])
 
     fields = {key: data[key] for key in FIELDS}

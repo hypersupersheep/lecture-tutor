@@ -32,7 +32,13 @@ EXIT_BY_ERROR: dict[str, int] = {
     "PlanError": EXIT_FAIL,
     "FileNotFoundError": EXIT_FAIL,
     "AcquireError": EXIT_FAIL,
+    "ValueError": EXIT_FAIL,
 }
+
+
+def _one_line(e: Exception) -> str:
+    """``str(e)`` with every run of whitespace collapsed to one space."""
+    return " ".join(str(e).split())
 
 
 def _not_implemented(args) -> int:
@@ -227,7 +233,7 @@ def _cmd_items_validate(args) -> int:
     try:
         results = validate_unit(Path(args.unit))
     except ValueError as e:
-        print(str(e), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     statuses = {r.status for r in results}
     status = "FAIL" if "FAIL" in statuses else "WARN" if "WARN" in statuses else "PASS"
@@ -243,7 +249,7 @@ def _cmd_items_assign(args) -> int:
     try:
         assignment = assign_unit(Path(args.unit), args.force)
     except ValueError as e:
-        print(str(e), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     print(json.dumps(assignment, ensure_ascii=False))
     return EXIT_OK
@@ -257,7 +263,7 @@ def _cmd_items_next(args) -> int:
     try:
         out = next_for_unit(Path(args.unit), args.phase)
     except ValueError as e:
-        print(str(e), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     print(json.dumps(out, ensure_ascii=False))
     return EXIT_OK
@@ -274,7 +280,7 @@ def _cmd_items_get(args) -> int:
         print(f"unknown item id: {args.id}", file=sys.stderr)
         return EXIT_USAGE
     except ValueError as e:
-        print(str(e), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     print(json.dumps(dataclasses.asdict(item), ensure_ascii=False))
     return EXIT_OK
@@ -288,7 +294,7 @@ def _cmd_cards_export(args) -> int:
     try:
         path = cards.export_tsv(Path(args.unit))
     except ValueError as e:
-        print(str(e).replace("\n", " "), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     print(json.dumps({"path": str(path)}, ensure_ascii=False))
     return EXIT_OK
@@ -307,7 +313,7 @@ def _cmd_cards_add_misses(args) -> int:
     try:
         added = cards.add_misses(unit, course, ws)
     except ValueError as e:
-        print(str(e).replace("\n", " "), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
     print(json.dumps({"added": added, "path": str(UnitPaths(unit).cards_tsv)}, ensure_ascii=False))
     return EXIT_OK
@@ -353,36 +359,28 @@ def _cmd_progress_render(args) -> int:
 
 
 def _cmd_map_validate(args) -> int:
-    import json
     from pathlib import Path
 
     from . import conceptmap
 
-    try:
-        results = conceptmap.validate_unit(Path(args.unit))
-    except json.JSONDecodeError as e:
-        print(f"map.json is not valid JSON: {e}", file=sys.stderr)
-        return EXIT_FAIL
+    # An unreadable or malformed map.json raises ValueError, which main maps to EXIT_FAIL.
+    results = conceptmap.validate_unit(Path(args.unit))
     print(conceptmap.format_results(results))
     return EXIT_FAIL if any(r.status == "FAIL" for r in results) else EXIT_OK
 
 
 def _cmd_map_mermaid(args) -> int:
-    import json
     from pathlib import Path
 
     from . import conceptmap
 
+    # An unreadable or malformed map.json raises ValueError, which main maps to EXIT_FAIL.
     try:
         path = conceptmap.export_mermaid(Path(args.unit), args.view)
-    except json.JSONDecodeError as e:
-        # Before ValueError: JSONDecodeError is a ValueError.
-        print(f"map.json is not valid JSON: {e}", file=sys.stderr)
-        return EXIT_FAIL
     except conceptmap.MapInvalid as e:
         print(conceptmap.format_results(e.results), file=sys.stderr)
         return EXIT_FAIL
-    except ValueError as e:
+    except conceptmap.UnknownView as e:
         print(str(e), file=sys.stderr)
         return EXIT_USAGE
     print(str(path))
@@ -575,6 +573,6 @@ def main(argv: list[str] | None = None) -> int:
         for cls in type(e).__mro__:
             code = EXIT_BY_ERROR.get(cls.__name__)
             if code is not None:
-                print(str(e), file=sys.stderr)
+                print(_one_line(e), file=sys.stderr)
                 return code
         raise

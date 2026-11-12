@@ -8,10 +8,10 @@ writes it; ``validate_map`` checks it and ``to_mermaid`` turns it into a flowcha
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from .checks import CheckResult
+from .plan import read_json
 from .unit import UnitPaths
 
 NODE_TYPES = ("definition", "theorem", "method", "example", "pitfall")
@@ -27,6 +27,10 @@ _SHAPES = {
 }
 
 
+class UnknownView(ValueError):
+    """Raised by ``to_mermaid`` when ``view_id`` names no view of the map."""
+
+
 class MapInvalid(Exception):
     """Raised by ``export_mermaid`` when the map fails a check; ``results`` holds them all."""
 
@@ -35,9 +39,10 @@ class MapInvalid(Exception):
         self.results = results
 
 
-def load_map(path) -> dict:
-    """Parse map.json and return it unchanged. Raises FileNotFoundError or json.JSONDecodeError."""
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+def load_map(path):
+    """Parse map.json and return it unchanged. Raises FileNotFoundError, or ValueError
+    ("map.json: ...") for bytes that are not UTF-8 or invalid JSON."""
+    return read_json(path, "map.json")
 
 
 def _result(name: str, offences: list[str]) -> CheckResult:
@@ -176,7 +181,7 @@ def to_mermaid(m, view_id: str | None = None) -> str:
     if view_id is not None:
         view = next((v for v in m.get("views") or [] if v["id"] == view_id), None)
         if view is None:
-            raise ValueError(f"unknown view: {view_id}")
+            raise UnknownView(f"unknown view: {view_id}")
         keep = set(view["nodes"])
         nodes = [node for node in nodes if node["id"] in keep]
         edges = [edge for edge in edges if edge["from"] in keep and edge["to"] in keep]

@@ -10,7 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from .items import find_item, load_items
-from .plan import load_plan
+from .plan import load_plan, safe_name
 from .unit import UnitPaths
 
 PHASES = ("pre", "post", "d1", "d7", "d21", "practice")
@@ -47,6 +47,11 @@ def _progress_dir(workspace: Path) -> Path:
     return Path(workspace) / "progress"
 
 
+def _course_file(workspace: Path, course: str, suffix: str) -> Path:
+    """``<workspace>/progress/<course><suffix>``; PlanError when ``course`` is not a safe folder name."""
+    return _progress_dir(workspace) / f"{safe_name(course, 'course')}{suffix}"
+
+
 def log_attempt(a: Attempt, workspace: Path) -> Path:
     """Append ``a`` as one JSON line to ``<workspace>/progress/<course>.jsonl`` and return that path."""
     # Check every value set before touching the disk, so a bad attempt leaves no trace.
@@ -58,9 +63,8 @@ def log_attempt(a: Attempt, workspace: Path) -> Path:
     ):
         if value not in allowed:
             raise ValueError(f"attempt {name} must be one of {', '.join(map(str, allowed))}, got {value!r}")
-    folder = _progress_dir(workspace)
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{a.course}.jsonl"
+    path = _course_file(workspace, a.course, ".jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(dataclasses.asdict(a), ensure_ascii=False) + "\n")
     return path
@@ -68,7 +72,7 @@ def log_attempt(a: Attempt, workspace: Path) -> Path:
 
 def load_attempts(course: str, workspace: Path) -> list[Attempt]:
     """The attempts of ``<workspace>/progress/<course>.jsonl`` in file order; a missing file gives []."""
-    path = _progress_dir(workspace) / f"{course}.jsonl"
+    path = _course_file(workspace, course, ".jsonl")
     if not path.exists():
         return []
     # Split on "\n" only: str.splitlines() also breaks at U+2028/U+2029/U+0085, which
@@ -264,8 +268,7 @@ def render_progress(course: str, workspace: Path, today: date) -> Path:
     ]
     blocks += ["## Confident but wrong", "\n".join(wrong_lines) or "None."]
 
-    folder = _progress_dir(workspace)
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{course}.md"
+    path = _course_file(workspace, course, ".md")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8", newline="\n")
     return path

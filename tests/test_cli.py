@@ -40,11 +40,26 @@ def test_exit_table():
         "PlanError": 1,
         "FileNotFoundError": 1,
         "AcquireError": 1,
+        "ValueError": 1,
     }
 
 
 def test_acquire_error_is_in_the_exit_table():
     assert cli.EXIT_BY_ERROR["AcquireError"] == cli.EXIT_FAIL
+
+
+def test_value_error_is_in_the_exit_table():
+    assert cli.EXIT_BY_ERROR["ValueError"] == cli.EXIT_FAIL
+
+
+def test_main_prints_a_mapped_error_on_one_line(monkeypatch, capsys):
+    def boom(args):
+        raise ValueError("items.json: first line\n   second\tline")
+
+    monkeypatch.setattr(cli, "_cmd_profile_show", boom)
+    assert main(["profile", "show"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "items.json: first line second line\n"
 
 
 def test_not_implemented_returns_usage(capsys):

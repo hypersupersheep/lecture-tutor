@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from tutor_any_lecture.plan import PlanError, load_plan
+from tutor_any_lecture.cli import main
+from tutor_any_lecture.plan import PlanError, load_plan, safe_name
 
 
 def write_plan(folder, concepts=5, tracked=5, drop=(), **fields):
@@ -47,3 +48,46 @@ def test_missing_key_rejected(tmp_path):
     path = write_plan(tmp_path, drop=("output_target",))
     with pytest.raises(PlanError):
         load_plan(path)
+
+
+# ---- names, languages and unreadable files (Task 21) ------------------------
+
+
+def one_line_error(capsys):
+    """Local helper: the captured stderr, asserting it is exactly one line and stdout is empty."""
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+    return captured.err
+
+
+@pytest.mark.parametrize("value", ["a/b", "a\\b", "..", ".", "a:b", " a", "a ", "a.", "a\tb", ""])
+def test_safe_name_rejects_unsafe_names(value):
+    with pytest.raises(PlanError):
+        safe_name(value, "course")
+
+
+def test_safe_name_accepts_spaces_and_cjk():
+    for value in ("课程 资料", "第1周", "CS 101 - Intro"):
+        assert safe_name(value, "course") == value
+
+
+def test_load_plan_rejects_unsafe_course(tmp_path):
+    path = write_plan(tmp_path, course="CS 101: Intro")
+    with pytest.raises(PlanError) as e:
+        load_plan(path)
+    assert str(e.value).startswith("course name")
+
+
+def test_language_with_trailing_newline_is_rejected(tmp_path):
+    path = write_plan(tmp_path, note_language="en\n")
+    with pytest.raises(PlanError):
+        load_plan(path)
+
+
+def test_cli_plan_not_utf8_is_one_line(tmp_path, capsys):
+    unit = tmp_path / "课程 资料" / "第1周"
+    unit.mkdir(parents=True)
+    (unit / "plan.json").write_bytes(b"\xff\xfe")
+    assert main(["verify", "--unit", str(unit)]) == 1
+    assert one_line_error(capsys).startswith("plan.json")
