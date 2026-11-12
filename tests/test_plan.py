@@ -76,7 +76,7 @@ def test_load_plan_rejects_unsafe_course(tmp_path):
     path = write_plan(tmp_path, course="CS 101: Intro")
     with pytest.raises(PlanError) as e:
         load_plan(path)
-    assert str(e.value).startswith("course name")
+    assert str(e.value).startswith("plan.json: course name")
 
 
 def test_language_with_trailing_newline_is_rejected(tmp_path):

@@ -121,8 +121,11 @@ def load_plan(path) -> Plan:
     if missing:
         raise PlanError(f"plan.json: missing key(s): {', '.join(missing)}")
 
-    safe_name(data["course"], "course")
-    safe_name(data["unit"], "unit")
+    try:
+        safe_name(data["course"], "course")
+        safe_name(data["unit"], "unit")
+    except PlanError as e:
+        raise PlanError(f"plan.json: {e}") from None
     _check_language("note_language", data["note_language"])
     _check_language("lecture_language", data["lecture_language"])
     if data["goal"] not in GOALS:
