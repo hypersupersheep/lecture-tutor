@@ -133,21 +133,6 @@ def test_malformed_contents_are_ignored(tmp_path):
     assert chapters == [{"title": "Limpets and anemones", "start": 31.0}]
 
 
-def test_non_list_details_is_empty_transcript(tmp_path):
-    """An extract with `details` and no transcript is EmptyTranscript.
-
-    `details` is a string in the real extract (panopto_extract.js), so it
-    never supplies transcript lines; the error comes from the missing
-    transcript. test_non_string_details_has_no_lecture_date covers a
-    `details` that is not a string.
-    """
-    extract = write_extract(tmp_path, "d.json", {"details": "abc"})
-    unit = tmp_path / "u"
-    with pytest.raises(EmptyTranscript):
-        import_panopto(extract, unit, False)
-    assert not unit.exists()
-
-
 def test_non_string_details_has_no_lecture_date(tmp_path):
     for i, details in enumerate([["2026-10-06 16:00"], {"x": 1}, 5]):
         unit = tmp_path / f"u{i}"

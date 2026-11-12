@@ -196,6 +196,8 @@ def _try_caption(url: str, kind: str, lang: str, duration: float | None) -> tupl
 
 def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | None) -> Transcript:
     """Download the audio stream only, transcribe it, and delete it."""
+    # Before the download: with no usable backend, BackendMissing is raised and nothing is fetched.
+    backend, model = asr.resolve_backend()
     with _temp_dir() as tmp:
         dl = tmp / "dl"
         opts = {
@@ -221,6 +223,8 @@ def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | No
             language,
             slide_terms(load_pages(unit)),
             asr.default_budget_minutes(duration),
+            backend=backend,
+            model=model,
         )
 
 
@@ -234,7 +238,9 @@ def acquire_url(url: str, unit: Path, profile: Profile, force: bool) -> Health:
         raise FileExistsError(f"{paths.transcript} already exists; rerun with --force to replace it")
 
     try:
-        with yt_dlp.YoutubeDL(dict(_BASE_OPTS)) as ydl:
+        # "in_playlist": a playlist page comes back with its entries unresolved, so the
+        # refusal below costs one request. Only this call; the downloads never list entries.
+        with yt_dlp.YoutubeDL({**_BASE_OPTS, "extract_flat": "in_playlist"}) as ydl:
             info = ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as e:
         raise AcquireError(f"could not read the video page: {_reason(e)}") from e

@@ -200,6 +200,8 @@ def fake_asr(monkeypatch):
 
     fake.calls = calls
     monkeypatch.setattr(asr, "transcribe", fake)
+    # acquire_url resolves the backend before any audio download; no real backend is needed here.
+    monkeypatch.setattr(asr, "resolve_backend", lambda backend=None, model=None: ("fake", None))
     return fake
 
 
@@ -455,3 +457,23 @@ def test_undeletable_temp_warns_on_stderr(monkeypatch, fake_ydl, tmp_path, profi
     finally:
         for f in fake_ydl.folders:
             shutil.rmtree(f, ignore_errors=True)
+
+
+def test_metadata_call_does_not_resolve_playlist_entries(fake_ydl, tmp_path, profile_off):
+    acquire_url("https://y/x", tmp_path, profile_off, False)
+    metadata_opts, caption_opts = fake_ydl.all_opts[0], fake_ydl.all_opts[1]
+    assert metadata_opts.get("extract_flat") == "in_playlist"
+    assert caption_opts.get("skip_download") is True
+    assert "extract_flat" not in caption_opts
+
+
+def test_no_backend_means_no_audio_download(monkeypatch, fake_ydl_no_caps, fake_asr, tmp_path, profile_on):
+    def missing(backend=None, model=None):
+        raise asr.BackendMissing("no ASR backend is installed")
+
+    monkeypatch.setattr(asr, "resolve_backend", missing)
+    with pytest.raises(asr.BackendMissing):
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert fake_ydl_no_caps.downloads == [] and fake_ydl_no_caps.folders == []
+    assert fake_asr.calls == []
+    assert not UnitPaths(tmp_path).transcript.exists()

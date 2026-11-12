@@ -148,3 +148,18 @@ def test_cli_slides_pdf_with_suspects_is_usage(tmp_path, capsys):
     assert not a.exists()
     assert sorted(p.relative_to(b) for p in b.rglob("*")) == before
     assert not UnitPaths(b).suspects.exists()
+
+
+def test_render_failure_is_acquire_error(monkeypatch, tmp_path):
+    import pdfplumber.page
+
+    def broken_render(self, *args, **kwargs):
+        raise OSError("renderer crashed")
+
+    monkeypatch.setattr(pdfplumber.page.Page, "to_image", broken_render)
+    pdf = make_pdf(tmp_path, ["a", "b"])
+    with pytest.raises(AcquireError) as exc:
+        extract_pdf(pdf, tmp_path / "unit", images=True)
+    assert str(exc.value).startswith("could not render page 1 of")
+    assert str(exc.value) == "could not render page 1 of slides.pdf"
+    assert isinstance(exc.value.__cause__, OSError)

@@ -72,7 +72,11 @@ def extract_pdf(pdf: Path, unit: Path, images: bool = False) -> list[Page]:
             image = None
             if images:
                 image = f"page-{n:03d}.png"
-                page.to_image(resolution=110).save(slides_dir / image)
+                # Rendering (pypdfium2 and Pillow) raises many unrelated types, as opening does.
+                try:
+                    page.to_image(resolution=110).save(slides_dir / image)
+                except Exception as e:
+                    raise AcquireError(f"could not render page {n} of {pdf.name}") from e
             pages.append(Page(n, _footer_label(text), text, image))
 
     payload = [dataclasses.asdict(p) for p in pages]

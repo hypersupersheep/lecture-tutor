@@ -200,9 +200,9 @@ def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> N
         pass
     try:
         conn.send(("ok", fn(audio, model, **kwargs)))
-    except Exception as e:  # every backend failure goes back to the parent as a message
-        tail = "\n".join(traceback.format_exc().splitlines()[-5:])
-        conn.send(("err", f"{type(e).__name__}: {e}\n{tail}"))
+    except Exception:  # every backend failure goes back to the parent as a message
+        # The tail ends with the "Type: message" line, so it is not repeated in front.
+        conn.send(("err", "\n".join(traceback.format_exc().splitlines()[-5:])))
     finally:
         conn.close()
 

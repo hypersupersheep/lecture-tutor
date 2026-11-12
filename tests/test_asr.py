@@ -230,3 +230,26 @@ def test_select_model_follows_the_ram_threshold(monkeypatch):
     assert select_model("mlx") == "mlx-community/whisper-small-mlx"
     monkeypatch.setattr(asr, "_ram_bytes", lambda: 16 * asr.GIB)
     assert select_model("mlx") == "mlx-community/whisper-large-v3-turbo"
+
+
+def test_missing_ffmpeg_is_acquire_error(monkeypatch):
+    import imageio_ffmpeg
+
+    def no_bundled_ffmpeg():
+        raise RuntimeError("no ffmpeg exe could be found")
+
+    monkeypatch.setattr(ffmpeg.shutil, "which", lambda name: None)
+    monkeypatch.setattr(imageio_ffmpeg, "get_ffmpeg_exe", no_bundled_ffmpeg)
+    with pytest.raises(AcquireError) as exc:
+        ffmpeg_exe()
+    assert str(exc.value).startswith("ffmpeg is not available")
+    assert str(exc.value) == "ffmpeg is not available: install ffmpeg, or reinstall imageio-ffmpeg"
+
+
+def test_child_error_line_appears_once(monkeypatch):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _boom)
+    with pytest.raises(AcquireError) as exc:
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+    message = str(exc.value)
+    assert message.count("RuntimeError: boom") == 1
+    assert "_boom" in message

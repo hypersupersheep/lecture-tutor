@@ -13,13 +13,20 @@ _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)")
 
 
 def ffmpeg_exe() -> str:
-    """ffmpeg on PATH, otherwise the binary bundled with imageio-ffmpeg."""
+    """ffmpeg on PATH, otherwise the binary bundled with imageio-ffmpeg.
+
+    Raises ``AcquireError`` when neither exists (imageio-ffmpeg missing, or its binary gone).
+    """
     found = shutil.which("ffmpeg")
     if found:
         return found
-    import imageio_ffmpeg
+    try:
+        import imageio_ffmpeg
 
-    return imageio_ffmpeg.get_ffmpeg_exe()
+        # Raises RuntimeError when the bundled binary is missing for this platform.
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, RuntimeError, OSError) as e:
+        raise AcquireError("ffmpeg is not available: install ffmpeg, or reinstall imageio-ffmpeg") from e
 
 
 def stderr_tail(raw: bytes, lines: int = 10) -> str:
