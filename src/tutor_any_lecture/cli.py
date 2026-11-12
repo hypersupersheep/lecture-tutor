@@ -199,6 +199,67 @@ def _cmd_slides_suspects(args) -> int:
     return EXIT_OK
 
 
+def _cmd_items_validate(args) -> int:
+    from pathlib import Path
+
+    from .items import validate_unit
+
+    try:
+        results = validate_unit(Path(args.unit))
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_FAIL
+    statuses = {r.status for r in results}
+    status = "FAIL" if "FAIL" in statuses else "WARN" if "WARN" in statuses else "PASS"
+    print(json.dumps({"status": status, "results": [dataclasses.asdict(r) for r in results]}, ensure_ascii=False))
+    return EXIT_FAIL if status == "FAIL" else EXIT_OK
+
+
+def _cmd_items_assign(args) -> int:
+    from pathlib import Path
+
+    from .items import assign_unit
+
+    try:
+        assignment = assign_unit(Path(args.unit), args.force)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_FAIL
+    print(json.dumps(assignment, ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_items_next(args) -> int:
+    from pathlib import Path
+
+    from .items import next_for_unit
+
+    try:
+        out = next_for_unit(Path(args.unit), args.phase)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_FAIL
+    print(json.dumps(out, ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_items_get(args) -> int:
+    from pathlib import Path
+
+    from .items import get_from_unit
+
+    try:
+        item = get_from_unit(Path(args.unit), args.id)
+    except KeyError:
+        print(f"unknown item id: {args.id}", file=sys.stderr)
+        return EXIT_USAGE
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_FAIL
+    print(json.dumps(dataclasses.asdict(item), ensure_ascii=False))
+    return EXIT_OK
+
+
 def _positive_number(value: str) -> float:
     """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
@@ -287,7 +348,23 @@ def build_parser() -> argparse.ArgumentParser:
     suspects = slides_sub.add_parser("suspects", help="flag transcript words that look like misheard slide terms")
     suspects.add_argument("--unit", required=True, help="the unit folder")
     suspects.set_defaults(func=_cmd_slides_suspects)
-    _stub(sub, "items")
+    items = sub.add_parser("items", help="check the item bank, assign variants, pick items to ask")
+    items_sub = items.add_subparsers(dest="items_command", required=True)
+    iv = items_sub.add_parser("validate", help="check items.json against plan.json and explanation.md")
+    iv.add_argument("--unit", required=True, help="the unit folder")
+    iv.set_defaults(func=_cmd_items_validate)
+    ia = items_sub.add_parser("assign", help="assign variants A/B/C to pre/post/d7 (reuses assignment.json)")
+    ia.add_argument("--unit", required=True, help="the unit folder")
+    ia.add_argument("--force", action="store_true", help="replace an existing assignment.json")
+    ia.set_defaults(func=_cmd_items_assign)
+    inx = items_sub.add_parser("next", help="print the items to ask in one phase")
+    inx.add_argument("--unit", required=True, help="the unit folder")
+    inx.add_argument("--phase", required=True, choices=["pre", "post", "d1", "d7", "d21"], help="the phase")
+    inx.set_defaults(func=_cmd_items_next)
+    ig = items_sub.add_parser("get", help="print one item by id")
+    ig.add_argument("--unit", required=True, help="the unit folder")
+    ig.add_argument("--id", required=True, help="the item id")
+    ig.set_defaults(func=_cmd_items_get)
     _stub(sub, "cards")
     _stub(sub, "progress")
     _stub(sub, "map")
