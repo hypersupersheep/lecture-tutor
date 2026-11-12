@@ -13,6 +13,7 @@ import importlib
 import importlib.util
 import os
 import platform
+import posixpath
 import re
 import shutil
 import subprocess
@@ -59,7 +60,12 @@ def _tool_version(name: str) -> tuple[int, int] | None:
 
 
 def _browser_candidates() -> list[str]:
-    """Default Chromium-family browser paths for this OS (CHROME_PATH not included)."""
+    """Default Chromium-family browsers to try on this OS (CHROME_PATH not included).
+
+    macOS: app-bundle paths, always with forward slashes whatever the host. Windows:
+    ``.exe`` paths under the program-files folders. Linux: bare command names, looked up
+    on PATH by ``check_browser``.
+    """
     if sys.platform == "darwin":
         apps = [
             "Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -67,7 +73,7 @@ def _browser_candidates() -> list[str]:
             "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
         ]
         roots = ["/Applications", os.path.expanduser("~/Applications")]
-        return [str(Path(root) / app) for root in roots for app in apps]
+        return [posixpath.join(root, app) for root in roots for app in apps]
     if sys.platform == "win32":
         exes = [
             r"Google\Chrome\Application\chrome.exe",
