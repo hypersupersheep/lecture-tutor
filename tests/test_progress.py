@@ -329,3 +329,10 @@ def test_cli_progress_log_malformed_items_is_one_line(tmp_path, capsys):
     assert captured.err.endswith("\n") and captured.err.count("\n") == 1
     assert captured.err.startswith("items.json:")
     assert not ws.exists()
+
+
+@pytest.mark.parametrize("field, value", [("score", True), ("confidence", True), ("confidence", 2.0)])
+def test_log_rejects_bool_and_float_values(tmp_path, field, value):
+    with pytest.raises(ValueError):
+        log_attempt(attempt(**{field: value}), tmp_path)
+    assert not (tmp_path / "progress" / "C.jsonl").exists()

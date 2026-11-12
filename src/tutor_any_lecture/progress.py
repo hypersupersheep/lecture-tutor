@@ -55,6 +55,12 @@ def _course_file(workspace: Path, course: str, suffix: str) -> Path:
 def log_attempt(a: Attempt, workspace: Path) -> Path:
     """Append ``a`` as one JSON line to ``<workspace>/progress/<course>.jsonl`` and return that path."""
     # Check every value set before touching the disk, so a bad attempt leaves no trace.
+    # bool is a subclass of int (True == 1) and 2.0 == 2, so the types are checked as well.
+    for name, value in (("score", a.score), ("confidence", a.confidence)):
+        if isinstance(value, bool):
+            raise ValueError(f"attempt {name} must be a number, not {value!r}")
+    if not isinstance(a.confidence, int):
+        raise ValueError(f"attempt confidence must be an integer, got {a.confidence!r}")
     for name, value, allowed in (
         ("phase", a.phase, PHASES),
         ("score", a.score, SCORES),

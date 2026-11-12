@@ -8,6 +8,7 @@ writes it; ``validate_map`` checks it and ``to_mermaid`` turns it into a flowcha
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from .checks import CheckResult
@@ -16,6 +17,8 @@ from .unit import UnitPaths
 
 NODE_TYPES = ("definition", "theorem", "method", "example", "pitfall")
 MAX_VIEW_NODES = 12
+# A node id is written bare into the Mermaid source; "end" (any case) closes a subgraph there.
+NODE_ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")  # applied with fullmatch
 
 # Mermaid node shapes by type: (opening, closing) around the quoted label.
 _SHAPES = {
@@ -96,6 +99,10 @@ def _check_schema(m) -> list[str]:
             reasons.append("order is not an integer")
         if reasons:
             offences.append(f"{name}: {', '.join(reasons)}")
+        if _is_text(node_id) and (not NODE_ID_RE.fullmatch(node_id) or node_id.lower() == "end"):
+            offences.append(
+                f'node id {node_id!r}: use letters, digits and underscores, starting with a letter; "end" is reserved'
+            )
         if _is_text(node_id):
             ids.add(node_id)
 

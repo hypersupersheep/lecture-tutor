@@ -178,3 +178,17 @@ def test_cli_map_mermaid_exit_codes(tmp_path):
     write_map(ok, map_with_edge(verb="uses"))
     assert main(["map", "mermaid", "--unit", str(ok), "--view", "nope"]) == 2
     assert not (broken / "overview.mmd").exists() and not (ok / "overview.mmd").exists()
+
+
+@pytest.mark.parametrize(
+    "node_id, status",
+    [("ito lemma", "FAIL"), ("a-b", "FAIL"), ("1x", "FAIL"), ("End", "FAIL"), ("ito_lemma", "PASS")],
+)
+def test_node_id_rule(node_id, status):
+    m = {"nodes": [{"id": node_id, "label": "Itô's lemma", "type": "theorem"}], "edges": []}
+    results = validate_map(m)
+    assert status_of(results, "schema") == status
+    if status == "FAIL":
+        assert results[0].details == [
+            f'node id {node_id!r}: use letters, digits and underscores, starting with a letter; "end" is reserved'
+        ]
