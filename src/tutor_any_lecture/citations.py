@@ -20,9 +20,11 @@ def _token(n: str) -> str:
 
 
 DASH = r"\s*[-–]\s*"
+# Only these parts: "slide N", "slides N–M", "T", "T–T", "~T", "~T–T". So "slide 14-16",
+# "slides 4" and "~ 13:40" leave text after the part, and _parse_group drops the group.
 PART_RE = re.compile(
-    rf"(?P<slide>slides?\s+(?P<s1>\d+)(?:{DASH}(?P<s2>\d+))?)"
-    rf"|(?P<time>(?P<tilde>~)?\s*{_token('a')}(?:{DASH}{_token('z')})?)",
+    rf"(?P<slide>slides\s+(?P<r1>\d+){DASH}(?P<r2>\d+)|slide\s+(?P<s1>\d+))"
+    rf"|(?P<time>(?P<tilde>~)?{_token('a')}(?:{DASH}{_token('z')})?)",
     re.IGNORECASE,
 )
 SEP_RE = re.compile(r"\s*[,，]\s*")
@@ -51,14 +53,15 @@ def _seconds(t: str) -> float:
 def _parse_group(content: str, raw: str, line: int) -> list[Citation]:
     """All parts of one group, or [] when its content is not a citation list."""
     out: list[Citation] = []
-    pos = len(content) - len(content.lstrip())  # leading whitespace is allowed
+    pos = 0  # no whitespace inside the parentheses before the first part or after the last
     while True:
         m = PART_RE.match(content, pos)
         if not m:
             return []
-        if m.group("slide"):
-            s2 = m.group("s2")
-            out.append(Citation("slide", m.group("s1"), s2, False, raw, line))
+        if m.group("s1"):
+            out.append(Citation("slide", m.group("s1"), None, False, raw, line))
+        elif m.group("slide"):
+            out.append(Citation("slide", m.group("r1"), m.group("r2"), False, raw, line))
         else:
             start = m.group("al") or m.group("ab")
             end = m.group("zl") or m.group("zb")
@@ -72,7 +75,7 @@ def _parse_group(content: str, raw: str, line: int) -> list[Citation]:
                     line,
                 )
             )
-        if not content[m.end() :].strip():
+        if m.end() == len(content):
             return out
         sep = SEP_RE.match(content, m.end())
         if not sep:

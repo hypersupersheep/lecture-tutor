@@ -12,7 +12,8 @@ import re
 
 from .checks import CheckResult
 from .citations import parse
-from .textstats import FENCE_OPEN_RE, is_cjk_language, strip_code, units
+# _FENCE_OPEN_RE and _strip_code are package-internal: check_note removes code as units() does.
+from .textstats import _FENCE_OPEN_RE, _strip_code, is_cjk_language, units
 
 THRESHOLDS = {
     "length_per_min": {"deep": {"cjk": (44, 89), "words": (26, 53)},
@@ -66,7 +67,7 @@ def _marker_lines(lines: list[str]) -> list[tuple[int, bool, str]]:
             if line.lstrip().startswith(fence):
                 fence = None
             continue
-        f = FENCE_OPEN_RE.match(line)
+        f = _FENCE_OPEN_RE.match(line)
         if f:
             fence = f.group(1)
             continue
@@ -291,7 +292,7 @@ def check_note(
     unit_name = "CJK characters" if cjk else "words"
     known = duration_min is not None and duration_min > 0
 
-    w = strip_code(md)
+    w = _strip_code(md)
     p = strip_marker_sections(w)
     bodies = marker_sections(w)
     w_lines = w.split("\n")

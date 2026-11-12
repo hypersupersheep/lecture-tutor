@@ -12,7 +12,7 @@ CJK_RE = re.compile(r"[㐀-䶿一-鿿぀-ヿ가-힯]")
 WORD_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")
 ALNUM_RE = re.compile(r"[^\W_]")
 
-FENCE_OPEN_RE = re.compile(r"^\s*(```|~~~)")
+_FENCE_OPEN_RE = re.compile(r"^\s*(```|~~~)")
 INLINE_CODE_RE = re.compile(r"(`+).+?\1")
 
 DISPLAY_MATH_RE = re.compile(r"\$\$.*?\$\$", re.DOTALL)
@@ -32,7 +32,7 @@ def is_cjk_language(lang: str) -> bool:
     return primary in CJK_LANGS
 
 
-def strip_code(md: str) -> str:
+def _strip_code(md: str) -> str:
     """Drop fenced code blocks whole and delete inline code spans.
 
     A fence opens on a line matching ^\\s*(```|~~~) and closes on the next line that,
@@ -46,7 +46,7 @@ def strip_code(md: str) -> str:
             if line.lstrip().startswith(fence):
                 fence = None
             continue
-        m = FENCE_OPEN_RE.match(line)
+        m = _FENCE_OPEN_RE.match(line)
         if m:
             fence = m.group(1)
             continue
@@ -54,9 +54,9 @@ def strip_code(md: str) -> str:
     return "\n".join(out)
 
 
-def strip_markup(text: str) -> str:
+def _strip_markup(text: str) -> str:
     """Remove code, LaTeX and URLs; Markdown link text stays."""
-    text = strip_code(text)
+    text = _strip_code(text)
     text = DISPLAY_MATH_RE.sub(" ", text)
     text = BRACKET_MATH_RE.sub(" ", text)
     text = PAREN_MATH_RE.sub(" ", text)
@@ -68,8 +68,8 @@ def strip_markup(text: str) -> str:
 
 
 def units(text: str, lang: str) -> int:
-    """CJK characters for CJK languages, words otherwise, after strip_markup."""
-    clean = strip_markup(text)
+    """CJK characters for CJK languages, words otherwise, after _strip_markup."""
+    clean = _strip_markup(text)
     if is_cjk_language(lang):
         return len(CJK_RE.findall(clean))
     return len(WORD_RE.findall(clean))
