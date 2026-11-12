@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -60,7 +61,7 @@ def primary_subtag(code: str | None) -> str | None:
 
 def _normalise(text: str) -> str:
     """Strip one leading BOM and turn CRLF, then lone CR, into LF."""
-    if text.startswith("﻿"):
+    if text.startswith("\ufeff"):
         text = text[1:]
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -71,7 +72,8 @@ def _collapse(text: str) -> str:
 
 _TS = r"(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})"
 _TIMING = re.compile(rf"\s*{_TS}\s*-->\s*{_TS}(?:\s+.*)?")
-_VTT_TAG = re.compile(r"</?(c|v|i|b|u|ruby|rt|lang)[^>]*>")
+# Only real WebVTT tags; only v and lang take an annotation after a space, so "<c and y>" is text.
+_VTT_TAG = re.compile(r"</?(?:c|i|b|u|ruby|rt)(?:\.[^\s>]+)?>|</?(?:v|lang)(?:\.[^\s>]+)?(?:[ \t][^>]*)?>")
 _VTT_TIME_TAG = re.compile(r"<(\d+:)?\d{2}:\d{2}\.\d{3}>")
 
 
@@ -118,7 +120,8 @@ def _read_cues(text: str, clean=None) -> list[Segment]:
 
 
 def _clean_vtt(payload: str) -> str:
-    return _VTT_TIME_TAG.sub("", _VTT_TAG.sub("", payload))
+    # Entities are decoded after the tags are removed, so "&lt;i&gt;" stays as text.
+    return html.unescape(_VTT_TIME_TAG.sub("", _VTT_TAG.sub("", payload)))
 
 
 def parse_srt(text: str) -> list[Segment]:
@@ -152,7 +155,7 @@ def parse_stamped_txt(text: str, duration: float | None) -> list[Segment]:
         if i + 1 < len(kept):
             end = kept[i + 1][0]
         else:
-            end = min(start + 5, duration or start + 5)
+            end = max(start, min(start + 5, duration or start + 5))
         segments.append(Segment(start, end, t))
     return segments
 

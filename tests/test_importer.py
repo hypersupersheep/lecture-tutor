@@ -116,3 +116,28 @@ def test_cli_import_refuses_then_force(tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.out == "" and "--force" in captured.err
     assert main(argv + ["--force"]) == 0
+
+
+def test_cli_bare_acquire_is_usage(capsys):
+    assert main(["acquire"]) == 2
+    assert capsys.readouterr().err.startswith("usage:")
+
+
+def test_import_guard_fires_before_input_is_read(tmp_path):
+    unit = tmp_path / "u"
+    import_transcript(fx("transcripts", "cues.vtt"), unit, None, False)
+    with pytest.raises(FileExistsError):
+        import_transcript(tmp_path / "missing.srt", unit, None, False)
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "nan", "inf", "abc"])
+def test_cli_duration_must_be_positive(tmp_path, value):
+    folder = tmp_path / "课程 资料"
+    folder.mkdir()
+    f = folder / "cues.vtt"
+    shutil.copyfile(fx("transcripts", "cues.vtt"), f)
+    unit = folder / "第1周"
+    with pytest.raises(SystemExit) as exc:
+        main(["acquire", "import", "--file", str(f), "--unit", str(unit), "--duration", value])
+    assert exc.value.code == 2
+    assert not UnitPaths(unit).transcript.exists()

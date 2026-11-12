@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import sys
 
 EXIT_OK = 0       # PASS or WARN, healthy transcript, doctor ready
@@ -100,6 +101,17 @@ def _cmd_acquire_import(args) -> int:
     return _run_acquire(lambda: import_transcript(Path(args.file), Path(args.unit), args.duration, args.force))
 
 
+def _positive_seconds(value: str) -> float:
+    """argparse type for --duration: a positive, finite number of seconds."""
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of seconds: {value!r}") from None
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive, finite number of seconds: {value!r}")
+    return seconds
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The only place subcommands are registered. Builds a fresh parser on every call."""
     parser = argparse.ArgumentParser(
@@ -135,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     imp = acquire_sub.add_parser("import", help="import a transcript file (.srt, .vtt, .json, .txt)")
     imp.add_argument("--file", required=True, help="the transcript file")
     imp.add_argument("--unit", required=True, help="the unit folder")
-    imp.add_argument("--duration", type=float, default=None, help="the lecture length in seconds, if known")
+    imp.add_argument("--duration", type=_positive_seconds, default=None, help="the lecture length in seconds, if known")
     imp.add_argument("--force", action="store_true", help="replace an existing transcript")
     imp.set_defaults(func=_cmd_acquire_import)
     _stub(sub, "transcribe")

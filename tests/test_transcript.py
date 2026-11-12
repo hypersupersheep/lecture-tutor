@@ -1,4 +1,6 @@
 import json
+import pickle
+from pathlib import Path
 
 import pytest
 
@@ -86,7 +88,7 @@ def test_health_empty_segments():
 
 def test_variants_parse_identically():
     lf = "1\n00:00:01,500 --> 00:00:03,000\nGood morning\n"
-    crlf = "﻿" + lf.replace("\n", "\r\n").replace(",", ".")
+    crlf = "\ufeff" + lf.replace("\n", "\r\n").replace(",", ".")
     vtt = "WEBVTT\n\n00:00:01.500 --> 00:00:03.000 align:start\nGood morning\n"
     assert parse_srt(lf) == parse_srt(crlf) == parse_vtt(vtt) == [Segment(1.5, 3.0, "Good morning")]
 
@@ -152,3 +154,33 @@ def test_import_crlf_bom_srt_file(tmp_path):
     import_transcript(f, unit, None, False)
     first = Transcript.from_json(UnitPaths(unit).transcript).segments[0]
     assert first.start == 1.5 and first.text == "Good morning"
+
+
+def test_vtt_keeps_text_in_angle_brackets():
+    vtt = (
+        "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n"
+        "if x <c and y> d then <code> stays, <v Ann>Hello <c.loud>there</c></v>\n"
+    )
+    assert parse_vtt(vtt) == [Segment(1.0, 3.0, "if x <c and y> d then <code> stays, Hello there")]
+
+
+def test_vtt_entities_decoded():
+    vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nQ&amp;A: a &lt; b &gt; c&nbsp;d &lt;i&gt;\n"
+    assert parse_vtt(vtt) == [Segment(1.0, 3.0, "Q&A: a < b > c d <i>")]
+
+
+def test_stamped_last_segment_never_ends_before_start():
+    assert parse_stamped_txt("[10:00] late\n", 300.0) == [Segment(600.0, 600.0, "late")]
+
+
+def test_no_literal_bom_in_python_files():
+    root = Path(__file__).resolve().parents[1]
+    files = sorted(f for folder in (root / "src", root / "tests") for f in folder.rglob("*.py"))
+    assert files
+    offenders = [str(f) for f in files if "\ufeff" in f.read_text(encoding="utf-8")]
+    assert offenders == []
+
+
+def test_transcript_pickles():
+    t = Transcript([Segment(0.0, 1.0, "hi", [{"word": "hi", "start": 0.0, "end": 1.0}])], "en")
+    assert pickle.loads(pickle.dumps(t)) == t
