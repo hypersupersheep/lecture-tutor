@@ -1,5 +1,12 @@
 import dataclasses
+import importlib
+import importlib.util
 import json
+import subprocess
+import sys
+from pathlib import PurePosixPath, PureWindowsPath
+
+import pytest
 
 from tutor_any_lecture import __version__, asr, doctor
 from tutor_any_lecture.cli import main
@@ -184,3 +191,86 @@ def test_real_run_never_raises(tmp_cfg):
     for name in ("python", "ffmpeg", "yt_dlp", "config_dir"):
         assert by_name[name]["ok"] is True, by_name[name]
     assert d["ready"] == all(by_name[n]["ok"] for n in REQUIRED)
+
+
+def test_broken_backend_import_is_reported_as_broken(monkeypatch):
+    real_import = importlib.import_module
+
+    def broken_import(name, *args, **kwargs):
+        if name.split(".")[0] == "faster_whisper":
+            raise OSError("missing DLL")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(asr, "select_backend", lambda: "faster")
+    monkeypatch.setattr(asr, "select_model", lambda backend: "small")
+    monkeypatch.setattr(importlib, "import_module", broken_import)
+    # The package is installed: find_spec locates it, only importing it fails.
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs: object())
+    monkeypatch.setattr(doctor, "CHECKS", [c for c in doctor.CHECKS if c.name == "asr_model"])
+    check = run_doctor()["checks"][0]
+    assert check["ok"] is False
+    assert "cannot be imported" in check["detail"] and "missing DLL" in check["detail"]
+    assert "not cached" not in check["detail"]
+    assert check["detail"] == "faster-whisper is installed but cannot be imported: OSError: missing DLL"
+    assert check["fix"] == "Optional: reinstall faster-whisper"
+
+
+def test_uninstalled_backend_package_keeps_not_cached_wording(monkeypatch):
+    def not_installed(name, *args, **kwargs):
+        raise ModuleNotFoundError(f"No module named {name!r}")
+
+    monkeypatch.setattr(asr, "select_backend", lambda: "faster")
+    monkeypatch.setattr(asr, "select_model", lambda backend: "small")
+    monkeypatch.setattr(importlib, "import_module", not_installed)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs: None)
+    assert doctor.check_asr_model() == (False, "small is not cached")
+
+
+@pytest.mark.parametrize("plat", ["darwin", "linux", "win32"])
+def test_browser_candidates_per_platform(monkeypatch, plat):
+    monkeypatch.setattr(sys, "platform", plat)
+    for var in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        monkeypatch.setenv(var, rf"C:\Synthetic\{var}")
+    candidates = doctor._browser_candidates()
+    assert candidates
+
+    def command_name(c):
+        return "/" not in c and "\\" not in c
+
+    for c in candidates:
+        if plat == "darwin":
+            assert ".app/" in PurePosixPath(c).as_posix() or command_name(c), c
+        elif plat == "linux":
+            assert command_name(c), c
+        else:
+            assert PureWindowsPath(c).suffix == ".exe" and not command_name(c), c
+
+
+def test_tool_version_handles_missing_and_failing_tools(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert doctor._tool_version("deno") is None
+
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/synthetic/bin/{name}")
+
+    def timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 10))
+
+    monkeypatch.setattr(doctor.subprocess, "run", timeout)
+    assert doctor._tool_version("deno") is None
+
+    def os_error(argv, **kwargs):
+        raise OSError("exec format error")
+
+    monkeypatch.setattr(doctor.subprocess, "run", os_error)
+    assert doctor._tool_version("deno") is None
+
+
+def test_model_cached_unknown_backend():
+    assert doctor._model_cached("no-such-backend", "small") is False
+
+
+def test_browser_found_by_command_name(monkeypatch):
+    monkeypatch.delenv("CHROME_PATH", raising=False)
+    monkeypatch.setattr(doctor, "_browser_candidates", lambda: ["synthetic-browser"])
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/synthetic/bin/" + name if name == "synthetic-browser" else None)
+    assert doctor.check_browser() == (True, "/synthetic/bin/synthetic-browser")

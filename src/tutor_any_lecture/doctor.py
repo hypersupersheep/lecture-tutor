@@ -9,6 +9,8 @@ network call, downloads anything, starts a browser or runs ffmpeg.
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import os
 import platform
 import re
@@ -27,8 +29,8 @@ from . import __version__
 class Check:
     name: str
     required: bool
-    fn: Callable[[], tuple[bool, str]]  # returns (ok, detail); may raise
-    fix: str                            # one line; what to do when the check is not ok
+    fn: Callable[[], tuple]  # returns (ok, detail) or (ok, detail, fix); may raise
+    fix: str                 # one line; what to do when the check is not ok (unless fn gives one)
 
 
 # --- helpers ----------------------------------------------------------------------
@@ -74,29 +76,58 @@ def _browser_candidates() -> list[str]:
         ]
         roots = [os.environ.get(v) for v in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
         return [str(Path(root) / exe) for root in roots if root for exe in exes]
-    names = [
+    # Command names, looked up on PATH by check_browser.
+    return [
         "google-chrome", "google-chrome-stable", "chromium",
         "chromium-browser", "microsoft-edge", "microsoft-edge-stable",
     ]
-    return [p for p in (shutil.which(n) for n in names) if p is not None]
+
+
+def _find_browser(candidate: str) -> str | None:
+    """A bare command name is looked up on PATH; anything else must be an existing file."""
+    if os.path.basename(candidate) == candidate:
+        return shutil.which(candidate)
+    return candidate if Path(candidate).is_file() else None
+
+
+class _BrokenPackage(Exception):
+    """A package is installed (find_spec locates it) but importing it raises."""
+
+    def __init__(self, package: str, error: Exception) -> None:
+        super().__init__(f"{package} is installed but cannot be imported: {type(error).__name__}: {error}")
+        self.package = package
+
+
+# backend -> (distribution, module) that the cache lookup imports.
+_CACHE_MODULES = {
+    "mlx": ("huggingface-hub", "huggingface_hub"),
+    "faster": ("faster-whisper", "faster_whisper.utils"),
+}
 
 
 def _model_cached(backend: str, model: str) -> bool:
-    """Whether ``model`` is already in the local cache. Never downloads (local_files_only)."""
+    """Whether ``model`` is already in the local cache. Never downloads (local_files_only).
+
+    An unknown backend gives False, as does a package that is not installed. A package
+    that is installed but fails to import raises ``_BrokenPackage``.
+    """
+    if backend not in _CACHE_MODULES:
+        return False
+    package, module = _CACHE_MODULES[backend]
+    try:
+        lib = importlib.import_module(module)
+    except Exception as e:  # a broken native library may raise OSError, not ImportError
+        if importlib.util.find_spec(module.split(".")[0]) is None:
+            return False
+        raise _BrokenPackage(package, e) from e
     try:
         if backend == "mlx":
-            import huggingface_hub
-
-            huggingface_hub.snapshot_download(model, local_files_only=True)
-            return True
-        if backend == "faster":
-            import faster_whisper.utils
-
-            faster_whisper.utils.download_model(model, local_files_only=True)
-            return True
+            lib.snapshot_download(model, local_files_only=True)
+        else:
+            lib.download_model(model, local_files_only=True)
     except Exception:
         return False
-    return False
+    return True
 
 
 # --- the checks -------------------------------------------------------------------
@@ -160,8 +191,9 @@ def check_browser() -> tuple[bool, str]:
         candidates.append(chrome_path)
     candidates.extend(_browser_candidates())
     for p in candidates:
-        if Path(p).is_file():
-            return True, p
+        found = _find_browser(p)
+        if found:
+            return True, found
     return False, "not found"
 
 
@@ -170,7 +202,11 @@ def check_asr_model() -> tuple[bool, str]:
 
     backend = asr.select_backend()
     model = asr.select_model(backend)
-    if _model_cached(backend, model):
+    try:
+        cached = _model_cached(backend, model)
+    except _BrokenPackage as e:
+        return False, str(e), f"Optional: reinstall {e.package}"
+    if cached:
         return True, model
     return False, f"{model} is not cached"
 
@@ -203,12 +239,15 @@ def run_doctor() -> dict:
     checks = []
     ready = True
     for c in CHECKS:
+        fix = c.fix
         try:
-            ok, detail = c.fn()
-            ok = bool(ok)
+            result = c.fn()
+            ok, detail = bool(result[0]), result[1]
+            if len(result) > 2:  # the check named a fix more specific than its default
+                fix = result[2]
         except Exception as e:
             ok, detail = False, f"{type(e).__name__}: {e}"
-        checks.append({"name": c.name, "ok": ok, "detail": detail, "fix": "" if ok else c.fix})
+        checks.append({"name": c.name, "ok": ok, "detail": detail, "fix": "" if ok else fix})
         if c.required and not ok:
             ready = False
     return {"ready": ready, "checks": checks, "version": __version__}
