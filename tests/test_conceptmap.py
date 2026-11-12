@@ -3,8 +3,9 @@ import json
 import pytest
 
 from conftest import status_of
+from tutor_any_lecture.checks import CheckResult
 from tutor_any_lecture.cli import main
-from tutor_any_lecture.conceptmap import to_mermaid, validate_map
+from tutor_any_lecture.conceptmap import format_results, to_mermaid, validate_map
 
 
 def map_with_view(nodes):
@@ -192,3 +193,36 @@ def test_node_id_rule(node_id, status):
         assert results[0].details == [
             f'node id {node_id!r}: use letters, digits and underscores, starting with a letter; "end" is reserved'
         ]
+
+
+
+# ---- rules that had no test (Task 21) ---------------------------------------
+
+
+@pytest.mark.parametrize("order, status", [(True, "FAIL"), (False, "FAIL"), (2, "PASS")])
+def test_order_must_be_an_integer(order, status):
+    m = map_with_edge(verb="uses")
+    m["nodes"][0]["order"] = order
+    assert status_of(validate_map(m), "schema") == status
+
+
+def test_view_with_unknown_id_fails_schema():
+    m = map_with_view(nodes=2)
+    m["views"][0]["nodes"].append("zz")
+    results = validate_map(m)
+    assert [(r.name, r.status, r.details) for r in results] == [("schema", "FAIL", ["v1: unknown nodes zz"])]
+
+
+def test_format_results_layout():
+    results = [CheckResult("schema", "PASS", []), CheckResult("edges", "FAIL", ["a -> b: no verb", "c -> d: no verb"])]
+    assert format_results(results) == "PASS schema\nFAIL edges\n  a -> b: no verb\n  c -> d: no verb"
+
+
+def test_cli_map_mermaid_view(tmp_path):
+    unit = tmp_path / "课程 资料" / "第1周"
+    m = map_with_edge(verb="uses")
+    m["nodes"].append({"id": "c", "label": "C", "type": "example"})
+    m["views"] = [{"id": "v1", "nodes": ["a", "b"]}, {"id": "v2", "nodes": ["c"]}]
+    write_map(unit, m)
+    assert main(["map", "mermaid", "--unit", str(unit), "--view", "v1"]) == 0
+    assert (unit / "overview.mmd").read_bytes() == AB_MERMAID.encode("utf-8")

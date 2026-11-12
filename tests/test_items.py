@@ -336,3 +336,46 @@ def test_cli_assignment_not_utf8_is_one_line(tmp_path, capsys):
     UnitPaths(u).assignment.write_bytes(b"\xff\xfe")
     assert main(["items", "next", "--unit", str(u), "--phase", "pre"]) == 1
     assert one_line_error(capsys).startswith("assignment.json")
+
+
+
+# ---- rules that had no test (Task 21) ---------------------------------------
+
+
+def _bad_kind(obj):
+    obj["tracked"]["c1"]["A"]["kind"] = "essay"
+
+
+def _wrong_keys(obj):
+    del obj["practice"][0]["rubric"]
+
+
+def _letter_f(obj):
+    obj["tracked"]["c1"]["F"] = dict(obj["tracked"]["c1"]["A"], id="c1-F", variant="F")
+
+
+def _other_concept(obj):
+    obj["tracked"]["c1"]["A"]["concept"] = "c2"
+
+
+def _practice_variant(obj):
+    obj["practice"][0]["variant"] = "A"
+
+
+def _duplicate_id(obj):
+    obj["practice"][1]["id"] = "p1"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [_bad_kind, _wrong_keys, _letter_f, _other_concept, _practice_variant, _duplicate_id],
+    ids=["bad-kind", "wrong-keys", "letter-outside-A-E", "variant-of-other-concept",
+         "practice-variant-not-null", "duplicate-id"],
+)
+def test_load_items_structural_faults(tmp_path, fault):
+    obj = items_to_json(ITEMS)
+    fault(obj)
+    path = tmp_path / "items.json"
+    write_json(path, obj)
+    with pytest.raises(ValueError):
+        load_items(path)

@@ -31,3 +31,16 @@ def test_parse_linked_timestamp():
         for c in parse("([13:42](https://v.example/w?t=822s)–14:05) (~[13:40](https://v.example/w?t=820s))")
     ]
     assert got == [("time", 822.0, 845.0, False), ("time", 820.0, None, True)]
+
+
+
+def test_resolve_uses_a_range_end_and_a_slide_range_maximum():
+    assert resolve(parse("(slides 2–5)"), max_slide=4, duration=None) == ["slide 5 > 4"]
+    assert resolve(parse("(slides 5–2)"), max_slide=4, duration=None) == ["slide 5 > 4"]
+    assert resolve(parse("(slides 2–4)"), max_slide=4, duration=None) == []
+    assert resolve(parse("(10:00–12:00)"), max_slide=None, duration=660) == ["12:00 > duration 11:00"]
+
+
+def test_full_width_comma_separates_citations():
+    got = [(c.kind, c.start, c.end) for c in parse("(slide 1，0:20)")]
+    assert got == [("slide", "1", None), ("time", 20.0, None)]

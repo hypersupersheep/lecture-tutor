@@ -336,3 +336,70 @@ def test_log_rejects_bool_and_float_values(tmp_path, field, value):
     with pytest.raises(ValueError):
         log_attempt(attempt(**{field: value}), tmp_path)
     assert not (tmp_path / "progress" / "C.jsonl").exists()
+
+
+
+# ---- rules that had no test (Task 21) ---------------------------------------
+
+
+@pytest.mark.parametrize("field, value", [("phase", "d3"), ("confidence", 4), ("exposure", "seen")])
+def test_log_rejects_bad_phase_confidence_exposure(tmp_path, field, value):
+    with pytest.raises(ValueError):
+        log_attempt(attempt(**{field: value}), tmp_path)
+    assert not (tmp_path / "progress" / "C.jsonl").exists()
+
+
+def test_table_escapes_pipe_in_unit_name(tmp_path):
+    write_attempts(tmp_path, mk(unit="a|b", pre=[0], post=[1]))
+    lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
+    assert "| a\\|b | 0.00 | 1.00 | — | 1.00 | — |" in lines
+
+
+def test_cli_bare_progress_is_usage():
+    with pytest.raises(SystemExit) as e:
+        main(["progress"])
+    assert e.value.code == 2
+
+
+RENDERED_PAGE = """# Progress — C
+
+Across 1 units: pre 0.00 → post 1.00; normalized gain 1.00.
+
+## Units
+
+| unit | pre | post | d7 | gain | retention |
+|---|---|---|---|---|---|
+| u1 | 0.00 | 1.00 | — | 1.00 | — |
+
+Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7.
+
+```text
+○···················●  u1
+```
+
+## By concept
+
+### u1
+
+```text
+○···················●  c1
+```
+
+## Due today
+
+- u1: d1 (optional), due 2026-11-21
+
+## Confident but wrong
+
+- u1: p1 (c1), practice, (0:30)
+"""
+
+
+def test_rendered_page_layout(tmp_path):
+    write_attempts(tmp_path, [
+        attempt(item_id="c1-A", variant="A", phase="pre", score=0),
+        attempt(item_id="c1-B", variant="B", phase="post", score=1, confidence=3),
+        attempt(item_id="p1", variant=None, phase="practice", score=0, confidence=3, citation="(0:30)"),
+    ])
+    page = render_progress("C", tmp_path, date(2026, 11, 21))
+    assert page.read_text(encoding="utf-8") == RENDERED_PAGE

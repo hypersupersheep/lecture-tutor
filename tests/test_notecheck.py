@@ -133,3 +133,54 @@ def test_marker_problem_reports_raw_line():
     assert md.split("\n")[8] == "<!-- tal:check -->"
     results = check_note(md, "en", "deep", 90, "markdown")
     assert details_of(results, "markers") == ["line 9: <!-- tal:check --> is never closed"]
+
+
+
+# ---- rules that had no test (Task 21) ---------------------------------------
+
+
+def test_nested_marker_is_a_problem():
+    md = ("## A\n\nText.\n\n<!-- tal:check -->\n<!-- tal:pretest -->\n1. Q?\n"
+          "<!-- /tal:pretest -->\n<!-- /tal:check -->\n")
+    results = check_note(md, "en", "deep", 90, "markdown")
+    assert status_of(results, "markers") == "FAIL"
+    assert "line 5: <!-- tal:check --> is not closed before the next marker" in details_of(results, "markers")
+
+
+def test_unknown_marker_name_is_a_problem():
+    md = "## A\n\n<!-- tal:quiz -->\n1. Q?\n<!-- /tal:quiz -->\n"
+    assert details_of(check_note(md, "en", "deep", 90, "markdown"), "markers") == [
+        "line 3: unknown marker <!-- tal:quiz -->",
+        "line 5: unknown marker <!-- /tal:quiz -->",
+    ]
+
+
+def test_close_without_open_is_a_problem():
+    md = "## A\n\nText.\n<!-- /tal:check -->\n"
+    assert details_of(check_note(md, "en", "deep", 90, "markdown"), "markers") == [
+        "line 4: <!-- /tal:check --> closes nothing"
+    ]
+
+
+def test_second_errata_section_is_a_problem():
+    section = "<!-- tal:errata -->\n> [!CAUTION]\n> The slide says 5%. (slide 1)\n<!-- /tal:errata -->\n"
+    md = "## A\n\nText.\n\n" + section + "\n" + section
+    assert details_of(check_note(md, "en", "deep", 90, "markdown"), "markers") == [
+        "line 10: second 'errata' section"
+    ]
+
+
+def test_toc_mismatch_on_obsidian_target():
+    md = "- [[#Present]]\n- [[#Missing|shown]]\n\n## Present\n\nText.\n"
+    results = check_note(md, "en", "deep", 90, "obsidian")
+    assert details_of(results, "toc_mismatch") == ["TOC link [[#Missing]] matches no H2"]
+    fixed = md.replace("[[#Missing|shown]]", "[[#Present|again]]")
+    assert status_of(check_note(fixed, "en", "deep", 90, "obsidian"), "toc_mismatch") == "PASS"
+
+
+def test_duplicate_heading_slugs_get_suffixes():
+    md = ("- [Intro](#intro)\n- [Intro again](#intro-1)\n- [Third](#intro-2)\n\n"
+          "## Intro\n\nA.\n\n## Intro\n\nB.\n")
+    assert details_of(check_note(md, "en", "deep", 90, "markdown"), "toc_mismatch") == [
+        "TOC link #intro-2 matches no H2"
+    ]

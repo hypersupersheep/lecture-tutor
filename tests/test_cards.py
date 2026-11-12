@@ -266,3 +266,10 @@ def test_cli_cards_not_utf8_is_one_line(tmp_path, capsys):
     assert captured.err.endswith("\n") and captured.err.count("\n") == 1
     assert captured.err.startswith("cards.json")
     assert not UnitPaths(u).cards_tsv.exists()
+
+
+
+def test_cli_bare_cards_is_usage():
+    with pytest.raises(SystemExit) as e:
+        main(["cards"])
+    assert e.value.code == 2

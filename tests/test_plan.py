@@ -91,3 +91,26 @@ def test_cli_plan_not_utf8_is_one_line(tmp_path, capsys):
     (unit / "plan.json").write_bytes(b"\xff\xfe")
     assert main(["verify", "--unit", str(unit)]) == 1
     assert one_line_error(capsys).startswith("plan.json")
+
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("goal", "fast"),
+        ("output_target", "html"),
+        ("note_language", "EN"),
+        ("duration_s", "90"),
+        ("tracked", ["c1", "c2", "c3", "c4", "c9"]),
+        ("tracked", ["c1", "c1", "c2", "c3", "c4"]),
+    ],
+    ids=["bad-goal", "bad-output-target", "malformed-language", "duration-not-number",
+         "unknown-tracked-id", "duplicate-tracked-id"],
+)
+def test_load_plan_faults(tmp_path, key, value):
+    path = write_plan(tmp_path)
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    plan[key] = value
+    path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    with pytest.raises(PlanError):
+        load_plan(path)

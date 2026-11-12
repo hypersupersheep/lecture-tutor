@@ -213,3 +213,25 @@ def test_not_covered_accepts_ranges(tmp_path):
     assert entry(run_verify(five_slide_unit(tmp_path / "c", "")), "coverage") == {
         "name": "coverage", "status": "FAIL", "details": [
             f"slide {n} is neither cited nor listed in the not-covered section" for n in (3, 4, 5)]}
+
+
+
+def test_coverage_expands_slide_ranges(tmp_path):
+    def unit(name, extra):
+        u = copy_fixture("ok", tmp_path / name)
+        path = UnitPaths(u).explanation
+        md = path.read_text(encoding="utf-8").replace("- slide 3\n", "")
+        path.write_text(md + extra, encoding="utf-8", newline="\n")
+        return u
+
+    assert entry(run_verify(unit("bare", "")), "coverage")["details"] == [
+        "slide 3 is neither cited nor listed in the not-covered section"]
+    cited = unit("cited", "\nThe limit case is continuous compounding (slides 2–3).\n")
+    assert entry(run_verify(cited), "coverage") == {"name": "coverage", "status": "PASS", "details": []}
+
+
+def test_escaped_dollar_is_currency(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    # Unescaped, "$5 a month, or $" would read as inline math and vanish.
+    append_to_note(u, "\n\nThe fee is \\$5 a month, or \\$x for the year (slide 1).\n")
+    assert "in the note, not in the sources: $5" in entry(run_verify(u), "numbers")["details"]
