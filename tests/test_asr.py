@@ -208,3 +208,25 @@ def test_child_native_stdout_goes_to_stderr(monkeypatch, capfd):
     assert [s.text for s in t.segments] == ["x"]
     captured = capfd.readouterr()
     assert "native noise" not in captured.out and "native noise" in captured.err
+
+
+def test_media_duration_unknown_is_none(monkeypatch, tmp_path):
+    def run(argv, **kwargs):
+        stderr = b"Input #0, srt, from 'x.srt':\n  Duration: N/A, bitrate: N/A\n"
+        return subprocess.CompletedProcess(argv, 1, b"", stderr)
+
+    monkeypatch.setattr(ffmpeg.subprocess, "run", run)
+    assert ffmpeg.media_duration(tmp_path / "x.srt") is None
+
+
+def test_no_backend_installed_is_backend_missing(monkeypatch):
+    monkeypatch.setattr(asr, "_installed", lambda module: False)
+    with pytest.raises(BackendMissing, match="no ASR backend is installed"):
+        asr.select_backend()
+
+
+def test_select_model_follows_the_ram_threshold(monkeypatch):
+    monkeypatch.setattr(asr, "_ram_bytes", lambda: 16 * asr.GIB - 1)
+    assert select_model("mlx") == "mlx-community/whisper-small-mlx"
+    monkeypatch.setattr(asr, "_ram_bytes", lambda: 16 * asr.GIB)
+    assert select_model("mlx") == "mlx-community/whisper-large-v3-turbo"

@@ -250,3 +250,15 @@ def test_local_undeletable_temp_warns_on_stderr(monkeypatch, tmp_path, capsys):
         assert captured.out == ""
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_local_guard_fires_before_missing_input(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    install_fake_asr(monkeypatch)
+    acquire_local(src, unit, Profile(), False)
+    missing = tmp_path / "课程 资料" / "nope.wav"
+    with pytest.raises(FileExistsError):
+        acquire_local(missing, unit, Profile(), False)
+    with pytest.raises(FileExistsError):
+        transcribe_audio(missing, unit, Profile(), False)

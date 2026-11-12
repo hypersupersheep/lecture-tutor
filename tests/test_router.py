@@ -228,3 +228,47 @@ def test_cli_route_requires_unit(tmp_path):
     with pytest.raises(SystemExit) as e:
         main(["acquire", "route", "--folder", str(tmp_path)])
     assert e.value.code == 2
+
+
+def test_dot_files_and_subfolders_are_skipped(tmp_path):
+    touch(tmp_path, ".hidden.srt", ".DS_Store", "a.pdf")
+    touch(tmp_path / "sub", "v.mp4")
+    (tmp_path / "x.srt").mkdir()   # a folder with a transcript suffix is still a folder
+    plan = route(tmp_path)
+    root = tmp_path.resolve()
+    listed = [f for fs in plan["files"].values() for f in fs]
+    assert listed == [str(root / "a.pdf")]
+    assert kinds(plan["steps"]) == [["slides", "--pdf"]]
+    assert plan["questions"] == []
+
+
+def test_panopto_step_writes_include_chapters(tmp_path):
+    (tmp_path / "extract.json").write_bytes(fx("panopto", "plain.json").read_bytes())
+    steps = route(tmp_path)["steps"]
+    assert kinds(steps) == [["acquire", "panopto"]]
+    assert steps[0]["writes"] == [
+        "<unit>/sources/transcript.json", "<unit>/sources/chapters.json", "<unit>/sources/source.json",
+    ]
+
+
+def test_deferred_steps_read_their_files(tmp_path):
+    touch(tmp_path / "photos", "1.jpg", "2.png", "3.heic", "v.mp4")
+    touch(tmp_path / "frames", "a.mp4", "b.mkv", "c.mp3", "x.srt")
+    photos = route(tmp_path / "photos")
+    frames = route(tmp_path / "frames")
+    p_root, f_root = (tmp_path / "photos").resolve(), (tmp_path / "frames").resolve()
+    assert photos["slide_source"] == "photos-deferred" and frames["slide_source"] == "keyframes-deferred"
+    p_deferred = [s for s in photos["steps"] if not s["runnable"]]
+    f_deferred = [s for s in frames["steps"] if not s["runnable"]]
+    assert len(p_deferred) == 1 and len(f_deferred) == 1
+    assert p_deferred[0]["reads"] == [str(p_root / n) for n in ("1.jpg", "2.png", "3.heic")]
+    # Keyframes come from video files only, never from audio.
+    assert f_deferred[0]["reads"] == [str(f_root / "a.mp4"), str(f_root / "b.mkv")]
+
+
+def test_no_media_question_when_transcript_exists(tmp_path):
+    touch(tmp_path, "a.mp4", "b.mp4", "c.mp3", "x.srt")
+    plan = route(tmp_path)
+    assert plan["questions"] == []
+    assert kinds(plan["steps"])[0] == ["acquire", "import"]
+    assert not any(s["argv"][1:3] == ["acquire", "local"] for s in plan["steps"])
