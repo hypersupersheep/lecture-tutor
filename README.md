@@ -98,39 +98,63 @@ flowchart TD
 2. **Find the recording.** Claude lists every LTI activity and the Panopto block on the Moodle course page, because each course names its recordings differently, then opens the viewer with `autoplay=false`.
 3. **Read the transcript.** `panopto_extract.js` reads the transcript, chapters, AI summary and lecture date from the page's DOM. It clicks nothing.
 4. **Read everything** and plan: where the lecturer switches topic, a slide-by-slide inventory, a list of misheard words checked against the slides, and the slides that were never covered.
-5. **Write.** Quotes go into `quotes.md` with their sources first; the note is then written around them, following the [writing contract](skills/tutor-any-lecture/references/writing-rules.md).
-6. **Check.** [`note_stats.sh`](skills/tutor-any-lecture/scripts/note_stats.sh) measures the note against the contract (quote density, paragraph length, heading structure, highlight count) and flags red lines. Every definition on every slide is traced to a place in the note.
+5. **Write.** Quotes go into `quotes.md` with their sources first; the note is then written around them, following the [writing contract](skills/tutor-any-lecture/references/writing.md).
+6. **Check.** `note_stats.sh` measures the note against the contract (quote density, paragraph length, heading structure, highlight count) and flags red lines. Every definition on every slide is traced to a place in the note.
 7. **Deliver** to the course folder and the Obsidian vault, one `lecture_wN/` folder per week, images in `截图/`.
 8. **Draw and typeset** the overview map, concept map and review sheet with the two companion skills.
 9. **Record** the audio lesson: a script written for the ear, local TTS, then Whisper back-transcription to check terms and formulas.
 
 ## Install
 
-**Requirements:** Claude Code with a browser tool (the desktop app's built-in browser, or Claude in Chrome), Python 3.10+, Google Chrome, ffmpeg. The audio lesson needs an Apple Silicon Mac. Obsidian with the Excalidraw plugin is optional.
+**Requirements:** an agent that loads skills and runs shell commands (Claude Code, Codex and others), and either [uv](https://docs.astral.sh/uv/) or Python 3.10+. Works on macOS, Linux and Windows x64.
 
-**Option A: copy the skills**
+**Option A: `npx skills` (recommended)**
 
 ```bash
 npx skills add hypersupersheep/tutor-any-lecture
 ```
 
-**Option B: install as a Claude Code plugin**
+This copies the skill into your agent's skills folder. Success check: your agent lists `tutor-any-lecture` among its skills. The command-line tool is installed on first use: the skill's Step 0 runs `tutor-any-lecture doctor --json`, and when the command is missing it offers to run the installer that ships inside the skill (`scripts/install.sh`, or `scripts/install.ps1` on Windows).
+
+**Option B: Claude Code plugin**
 
 ```text
 /plugin marketplace add hypersupersheep/tutor-any-lecture
 /plugin install tutor-any-lecture@tutor-any-lecture
 ```
 
-Then install the Python packages from `requirements.txt` into the environment you want the scripts to use.
+Success check: `/plugin` shows `tutor-any-lecture` as installed. The command-line tool is installed on first use, as in Option A.
 
-**Configure** your folders and courses:
+**Option C: ask your agent to install it**
 
-```bash
-mkdir -p ~/.config/lecture-tutor
-cp lecture-tutor/skills/tutor-any-lecture/config.example.yaml ~/.config/lecture-tutor/config.yaml
+Paste this into your agent:
+
+```text
+Install tutor-any-lecture for me. After each step, check the result. If a check fails, stop and tell me what you saw.
+
+1. Clone https://github.com/hypersupersheep/tutor-any-lecture into a folder of your choice.
+   Check: the folder contains install.sh and install.ps1.
+2. In that folder, run `bash install.sh --yes` on macOS or Linux, or `pwsh -File install.ps1 -Yes` on Windows. Do not pipe any download into a shell.
+   Check: the exit code is 0 and the last output is a JSON object with "ready": true. On exit code 3, show me what it printed (the "fix" lines of that JSON, or the instructions for installing uv) and stop.
+3. Read the full path of the command from the file ${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path (on Windows: %APPDATA%\tutor-any-lecture\cli-path) and run `<that path> selftest`.
+   Check: the exit code is 0.
+4. Look for tutor-any-lecture/SKILL.md in your own skills folder (for example ~/.claude/skills/ or ~/.codex/skills/).
+   Check: the file exists. If it does not, run the installer again with `--agents` followed by claude, codex or agents (on Windows: `-Agents`).
 ```
 
-Fill in your course folder, Obsidian vault folder, Python interpreter, your university's Moodle and Panopto addresses, and one entry per course. See [`config.example.yaml`](skills/tutor-any-lecture/config.example.yaml).
+The installer uses `uv tool install` when uv is present. Otherwise it creates a private environment in `~/.tutor-any-lecture/venv` (`%LOCALAPPDATA%\tutor-any-lecture\venv` on Windows). It installs nothing into your system Python and never downloads a script to run it. It then records the command's full path in the `cli-path` file, copies the skill to the agents it finds (`~/.claude`, `~/.codex`, `~/.agents`), and runs `tutor-any-lecture doctor --json`. Add `--dry-run` (`-DryRun`) to see the plan without changing anything.
+
+**Option D: Claude.ai (ZIP upload)**
+
+Zip the folder `skills/tutor-any-lecture` and upload it as a skill in Claude.ai. Limits: Claude.ai cannot process large local videos, so this route works from slides, captions and transcripts only.
+
+### Quick start
+
+```bash
+tutor-any-lecture selftest
+```
+
+This runs a bundled sample (a three-minute mini-lecture with three slides) through the whole pipeline. It needs no network and no speech-to-text model; exit code 0 means the install works. If your shell cannot find the command, use the full path stored in the `cli-path` file. Then give your agent a lecture: `Teach me this lecture: <file, folder or link>`.
 
 ## Usage
 
@@ -155,17 +179,20 @@ English requests work too; the notes come out in Chinese.
 
 ```text
 skills/tutor-any-lecture/
-├── SKILL.md                     the pipeline
-├── config.example.yaml
+├── SKILL.md                     the workflow, for any agent
 ├── references/
-│   ├── writing-rules.md         the writing contract for the study note
-│   ├── audio-script-rules.md    how to write and synthesise the audio lesson
-│   ├── panopto.md               finding recordings on Moodle, extracting transcripts
-│   └── cowork.md                differences when running in Claude Cowork
+│   ├── writing.md               the writing contract for the note
+│   ├── teaching.md              pretest, quiz, reviews and card rules
+│   ├── gate.md                  what `verify` checks
+│   ├── profile.md               settings
+│   ├── adapters/                one file per source: local, url, import, panopto, moodle
+│   ├── agents/                  agent-specific notes: claude-code, codex, generic
+│   ├── output-targets/          markdown, obsidian
+│   └── audio-script-rules.md    how to write and synthesise the audio lesson
 └── scripts/
+    ├── install.sh               installer for macOS and Linux
+    ├── install.ps1              installer for Windows
     ├── panopto_extract.js       read-only DOM extraction in the Panopto viewer
-    ├── panopto_to_files.py      split the extraction into transcript, chapters, metadata
-    ├── note_stats.sh            measure a note against the writing contract
     └── tts_synthesize.py        audio script → m4a with local Qwen3-TTS
 ```
 
@@ -184,6 +211,8 @@ skills/tutor-any-lecture/
 - **No credentials.** It never types passwords or MFA codes and never reads access tokens or cookies. At a login page or a "Verify you are human" check it stops and hands over to you.
 - **Asks before downloading** any recording, every time, and does not work around a disabled download button.
 - **For personal study** of recordings you are entitled to watch. Don't redistribute recordings, transcripts or notes made from copyrighted lectures. The showcase in this repo contains generated diagrams and short excerpts only, with lecturer quotes redacted.
+
+**Public-video audio (off by default).** The setting is `public_video_audio`. Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded.
 
 ## FAQ
 

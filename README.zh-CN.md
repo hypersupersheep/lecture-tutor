@@ -98,39 +98,63 @@ flowchart TD
 2. **找录像**:每门课给录像起的名字都不一样,所以 Claude 列出 Moodle 课程页上全部 LTI 活动和 Panopto 区块再挑,打开 viewer 时带 `autoplay=false`。
 3. **取转写**:`panopto_extract.js` 从页面 DOM 读转写、章节、AI 摘要和讲课日期,不点任何按钮。
 4. **读材料,先整理**:老师在哪里换话题、课件逐页清单、对照课件的误听清单、课上没讲到的页。
-5. **写**:先把要引用的原话连同出处抽到 `quotes.md`,再围绕引文写正文,遵守[写作契约](skills/tutor-any-lecture/references/writing-rules.md)。
-6. **自检**:[`note_stats.sh`](skills/tutor-any-lecture/scripts/note_stats.sh) 按契约量化检查(引文密度、段落长度、标题结构、高亮数量),亮红线就返工;再按课件逐页核对每个定义落在笔记哪里。
+5. **写**:先把要引用的原话连同出处抽到 `quotes.md`,再围绕引文写正文,遵守[写作契约](skills/tutor-any-lecture/references/writing.md)。
+6. **自检**:`note_stats.sh` 按契约量化检查(引文密度、段落长度、标题结构、高亮数量),亮红线就返工;再按课件逐页核对每个定义落在笔记哪里。
 7. **交付**:存进课程文件夹和 Obsidian vault,每周一个 `lecture_wN/`,图放 `截图/`。
 8. **画图、排版**:用另外两个 skill 画总览图、思维导图,排手写复习版。
 9. **录语音**:写一份适合听的讲稿,本地合成,再用 Whisper 转回文字核对术语和公式。
 
 ## 安装
 
-**需要**:带浏览器工具的 Claude Code(桌面版的内置浏览器,或 Claude in Chrome)、Python 3.10+、Google Chrome、ffmpeg。语音需要 Apple Silicon 的 Mac。Obsidian 和 Excalidraw 插件可选。
+**需要**:一个能加载 skill、能运行 shell 命令的 agent(Claude Code、Codex 等),以及 [uv](https://docs.astral.sh/uv/) 或 Python 3.10+ 其中之一。支持 macOS、Linux 和 x64 的 Windows。
 
-**方式一:复制 skill**
+**方式一:npx skills(推荐)**
 
 ```bash
 npx skills add hypersupersheep/tutor-any-lecture
 ```
 
-**方式二:作为 Claude Code 插件安装**
+这条命令把 skill 复制到 agent 的 skills 文件夹。怎样算成功:agent 列出的 skill 里有 `tutor-any-lecture`。命令行工具在第一次使用时安装:skill 的第 0 步运行 `tutor-any-lecture doctor --json`,找不到这个命令时,它会提出运行 skill 自带的安装脚本(`scripts/install.sh`,Windows 上是 `scripts/install.ps1`)。
+
+**方式二:Claude Code 插件**
 
 ```text
 /plugin marketplace add hypersupersheep/tutor-any-lecture
 /plugin install tutor-any-lecture@tutor-any-lecture
 ```
 
-再把 `requirements.txt` 里的包装进你想让脚本用的 Python 环境。
+怎样算成功:`/plugin` 里显示 `tutor-any-lecture` 已安装。命令行工具同样在第一次使用时安装。
 
-**配置**文件夹和课程:
+**方式三:让 agent 替你安装**
 
-```bash
-mkdir -p ~/.config/lecture-tutor
-cp lecture-tutor/skills/tutor-any-lecture/config.example.yaml ~/.config/lecture-tutor/config.yaml
+把下面这段话粘贴给 agent:
+
+```text
+帮我安装 tutor-any-lecture。每做完一步就检查结果;检查没通过就停下,告诉我你看到了什么。
+
+1. 把 https://github.com/hypersupersheep/tutor-any-lecture 克隆到你选的文件夹。
+   检查:文件夹里有 install.sh 和 install.ps1。
+2. 在这个文件夹里运行安装脚本:macOS 或 Linux 上是 `bash install.sh --yes`,Windows 上是 `pwsh -File install.ps1 -Yes`。不要把下载的内容直接交给 shell 执行。
+   检查:退出码是 0,最后一段输出是一个 JSON 对象,里面有 "ready": true。退出码是 3 时,把它打印的内容给我看(JSON 里的 "fix",或者安装 uv 的说明),然后停下。
+3. 从文件 ${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path(Windows 上是 %APPDATA%\tutor-any-lecture\cli-path)里读出命令的完整路径,运行 `<这个路径> selftest`。
+   检查:退出码是 0。
+4. 在你自己的 skills 文件夹里(例如 ~/.claude/skills/ 或 ~/.codex/skills/)找 tutor-any-lecture/SKILL.md。
+   检查:文件存在。不存在的话,重新运行安装脚本,加上 `--agents`,后面写 claude、codex 或 agents(Windows 上是 `-Agents`)。
 ```
 
-填上课程资料文件夹、Obsidian 笔记文件夹、Python 解释器、学校的 Moodle 和 Panopto 地址,每门课一条。字段说明见 [`config.example.yaml`](skills/tutor-any-lecture/config.example.yaml)。
+有 uv 时,安装脚本用 `uv tool install`;没有时,它在 `~/.tutor-any-lecture/venv`(Windows 上是 `%LOCALAPPDATA%\tutor-any-lecture\venv`)建一个独立的环境。它不往系统 Python 里装任何东西,也不会下载脚本来执行。装好以后,它把命令的完整路径记在 `cli-path` 文件里,把 skill 复制给找到的 agent(`~/.claude`、`~/.codex`、`~/.agents`),再运行 `tutor-any-lecture doctor --json`。加上 `--dry-run`(`-DryRun`)可以只看计划,不做任何改动。
+
+**方式四:Claude 网页版上传 ZIP**
+
+把文件夹 `skills/tutor-any-lecture` 打成 ZIP,在 Claude 网页版里作为 skill 上传。限制:网页版处理不了本地的大视频,这种方式只能用课件、字幕和转写稿。
+
+### 快速开始
+
+```bash
+tutor-any-lecture selftest
+```
+
+这条命令用内置的小样例(三分钟的短讲课加三页课件)把整个流程跑一遍,不需要联网,也不需要语音识别模型;退出码是 0 就说明装好了。shell 找不到这个命令时,用 `cli-path` 文件里记的完整路径。然后把一节课交给 agent:`把这节课讲给我:<文件、文件夹或链接>`。
 
 ## 用法
 
@@ -153,17 +177,20 @@ cp lecture-tutor/skills/tutor-any-lecture/config.example.yaml ~/.config/lecture-
 
 ```text
 skills/tutor-any-lecture/
-├── SKILL.md                     流程
-├── config.example.yaml
+├── SKILL.md                     流程,不绑定某一家 agent
 ├── references/
-│   ├── writing-rules.md         讲解笔记的写作契约
-│   ├── audio-script-rules.md    语音稿怎么写、怎么合成
-│   ├── panopto.md               在 Moodle 上找录像、取转写
-│   └── cowork.md                在 Claude Cowork 里运行的差别
+│   ├── writing.md               讲解笔记的写作契约
+│   ├── teaching.md              前测、测验、复习和卡片规则
+│   ├── gate.md                  `verify` 检查什么
+│   ├── profile.md               设置项
+│   ├── adapters/                每种来源一个文件:local、url、import、panopto、moodle
+│   ├── agents/                  各家 agent 的说明:claude-code、codex、generic
+│   ├── output-targets/          markdown、obsidian
+│   └── audio-script-rules.md    语音稿怎么写、怎么合成
 └── scripts/
+    ├── install.sh               macOS 和 Linux 的安装脚本
+    ├── install.ps1              Windows 的安装脚本
     ├── panopto_extract.js       在 Panopto viewer 里只读地取 DOM
-    ├── panopto_to_files.py      拆成转写、章节、元数据三个文件
-    ├── note_stats.sh            按写作契约量化检查笔记
     └── tts_synthesize.py        语音稿 → m4a,本地 Qwen3-TTS
 ```
 
@@ -182,6 +209,8 @@ skills/tutor-any-lecture/
 - **不碰凭据**:不输密码或 MFA,不读 access token 和 cookie;遇到登录页或"Verify you are human"就停下交给你。
 - **下载录像前每次都问**,老师关了下载就不绕过。
 - **只用于个人学习**你有权观看的录像。不要传播录像、转写,或根据受版权保护的课程做的笔记。本仓库的案例只有生成的图和简短节选,老师原话已隐去。
+
+**公开视频的音频(默认关闭)**:设置项是 `public_video_audio`。打开后,遇到没有可用字幕的公开视频(YouTube、B 站,以及 yt-dlp 支持的其他网站),tutor-any-lecture 会下载音轨,在本地转写,转写完就删除。遵守各网站的条款和版权由你自己负责;只用于个人学习。cookie、受 DRM 保护的内容和需要登录才能看的内容一律不下载。
 
 ## 常见问题
 
