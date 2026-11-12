@@ -117,9 +117,10 @@ def load_profile(path: Path | None = None) -> Profile:
 def _not_a_string(key: str, value: Any) -> str:
     if value is None:
         return f'{key}: the value is empty; write a value, quoted if needed (for example {key}: "value"), or delete the line'
-    # YAML 1.1 turns yes/no/on/off into booleans; suggest the quoted spelling.
-    example = {True: "yes", False: "no"}.get(value, value) if isinstance(value, bool) else value
-    return f'{key}: expected text but got {value!r}; quote the value, for example {key}: "{example}"'
+    if isinstance(value, bool):
+        # YAML 1.1 turns yes/no/on/off/true/false into booleans; which word was written is lost.
+        return f"{key}: put the value in quotes; YAML reads yes, no, on, off, true and false as booleans"
+    return f'{key}: expected text but got {value!r}; quote the value, for example {key}: "{value}"'
 
 
 def save_profile(profile: Profile, path: Path | None = None) -> Path:

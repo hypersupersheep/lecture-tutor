@@ -6,7 +6,8 @@ import pytest
 from conftest import fx, names_by_status, status_of
 
 from tutor_any_lecture.config import config_dir, workspace
-from tutor_any_lecture.profile import ConsentRequired, Profile, ProfileError, load_profile, set_value
+from tutor_any_lecture.profile import (PUBLIC_VIDEO_AUDIO_NOTICE, ConsentRequired, Profile, ProfileError,
+                                       load_profile, set_value)
 from tutor_any_lecture.unit import UnitPaths
 
 CONTRACT = {
@@ -133,3 +134,66 @@ def test_conftest_helpers():
     by_status = names_by_status(results)
     assert type(by_status) is dict and by_status == {"PASS": {"a", "c"}, "FAIL": {"b"}}
     assert fx("transcripts", "cues.vtt") == Path(__file__).parent / "fixtures" / "transcripts" / "cues.vtt"
+
+
+def write_profile(tmp_path, text):
+    """Local helper: a profile file holding ``text``."""
+    path = tmp_path / "p.yaml"
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return path
+
+
+def test_load_rejects_value_outside_its_set(tmp_path):
+    with pytest.raises(ProfileError) as e:
+        load_profile(write_profile(tmp_path, "goal: fast\n"))
+    assert "goal" in str(e.value)
+
+
+def test_load_rejects_non_mapping(tmp_path):
+    with pytest.raises(ProfileError):
+        load_profile(write_profile(tmp_path, "- goal\n- exam\n"))
+
+
+def test_empty_file_gives_defaults(tmp_path):
+    assert load_profile(write_profile(tmp_path, "")) == Profile()
+
+
+@pytest.mark.parametrize("text, key", [
+    ("outputs: explanation\n", "outputs"),
+    ("outputs: {a: b}\n", "outputs"),
+    ("platforms: [video]\n", "platforms"),
+    ("platforms: video\n", "platforms"),
+])
+def test_load_rejects_wrong_type_for_outputs_and_platforms(tmp_path, text, key):
+    with pytest.raises(ProfileError) as e:
+        load_profile(write_profile(tmp_path, text))
+    assert key in str(e.value)
+
+
+def test_windows_config_dir_without_appdata(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+    assert config_dir() == Path.home() / "AppData" / "Roaming" / "tutor-any-lecture"
+
+
+def test_set_value_on_broken_yaml_is_profile_error(tmp_cfg):
+    path = config_dir() / "profile.yaml"
+    path.parent.mkdir(parents=True)
+    broken = "goal: [exam\n"
+    path.write_text(broken, encoding="utf-8", newline="\n")
+    with pytest.raises(ProfileError):
+        set_value("goal", "quick")
+    assert path.read_text(encoding="utf-8") == broken
+
+
+def test_consent_required_message_is_the_notice():
+    assert str(ConsentRequired(PUBLIC_VIDEO_AUDIO_NOTICE)) == PUBLIC_VIDEO_AUDIO_NOTICE
+
+
+def test_bool_hint_names_no_invented_word(tmp_path):
+    with pytest.raises(ProfileError) as e:
+        load_profile(write_profile(tmp_path, "note_language: off\n"))
+    message = str(e.value)
+    assert "put the value in quotes" in message
+    assert '"no"' not in message
+    assert message == "note_language: put the value in quotes; YAML reads yes, no, on, off, true and false as booleans"
