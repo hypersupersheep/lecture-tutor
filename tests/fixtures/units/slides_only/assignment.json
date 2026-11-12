@@ -1,0 +1,15 @@
+{
+  "seed": "demo-course|unit-01",
+  "concepts": {
+    "compound-interest": {
+      "pre": "A",
+      "post": "B",
+      "d7": "C"
+    },
+    "compounding-frequency": {
+      "pre": "A",
+      "post": "C",
+      "d7": "B"
+    }
+  }
+}

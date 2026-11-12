@@ -1,0 +1,17 @@
+{
+  "kind": "slides-only",
+  "title": "compound-interest-slides",
+  "url": null,
+  "platform": null,
+  "duration": null,
+  "lecture_language": null,
+  "acquisition": "slides",
+  "health": {},
+  "tool_versions": {
+    "pdfplumber": "0.11.4"
+  },
+  "inputs_sha256": {
+    "compound-interest-slides.pdf": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "lecture_date": null
+}

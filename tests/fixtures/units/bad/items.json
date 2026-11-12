@@ -1,0 +1,87 @@
+{
+  "tracked": {
+    "compound-interest": {
+      "A": {
+        "id": "ci-A",
+        "concept": "compound-interest",
+        "kind": "recall",
+        "prompt": "What separates compound interest from simple interest?",
+        "answer": "Compound interest is paid on past interest as well as on the deposit.",
+        "rubric": "Full marks for naming interest earned on earlier interest.",
+        "citation": "(slide 1)",
+        "difficulty": 1,
+        "variant": "A"
+      },
+      "B": {
+        "id": "ci-B",
+        "concept": "compound-interest",
+        "kind": "apply",
+        "prompt": "A deposit of 100 earns ten percent a year, compounded yearly; what is the balance after two years?",
+        "answer": "121",
+        "rubric": "Full marks for 121; half for 120.",
+        "citation": "(slide 1)",
+        "difficulty": 2,
+        "variant": "B"
+      },
+      "C": {
+        "id": "ci-C",
+        "concept": "compound-interest",
+        "kind": "transfer",
+        "prompt": "Why does waiting longer favour compound growth over simple growth by a widening margin?",
+        "answer": "Each period adds interest on a larger base, so the gap grows every period.",
+        "rubric": "Full marks for the growing base.",
+        "citation": "(slide 1)",
+        "difficulty": 2,
+        "variant": "C"
+      }
+    },
+    "compounding-frequency": {
+      "A": {
+        "id": "cf-A",
+        "concept": "compounding-frequency",
+        "kind": "recall",
+        "prompt": "What is an effective annual rate?",
+        "answer": "The rate that, paid once a year, gives the same growth as the quoted schedule.",
+        "rubric": "Full marks for same growth over one year.",
+        "citation": "(slide 2)",
+        "difficulty": 1,
+        "variant": "A"
+      },
+      "B": {
+        "id": "cf-B",
+        "concept": "compounding-frequency",
+        "kind": "apply",
+        "prompt": "A card adds one percent of the balance every month; is its effective yearly cost above or below twelve percent?",
+        "answer": "Above, because each month's charge is itself charged later.",
+        "rubric": "Full marks for above with the reason.",
+        "citation": "(slide 2)",
+        "difficulty": 2,
+        "variant": "B"
+      },
+      "C": {
+        "id": "cf-C",
+        "concept": "compounding-frequency",
+        "kind": "transfer",
+        "prompt": "One bank pays interest daily and another yearly at the same quoted rate; which should a saver pick, and why?",
+        "answer": "The daily one, since interest starts earning sooner.",
+        "rubric": "Full marks for daily with the reason.",
+        "citation": "(slide 2)",
+        "difficulty": 2,
+        "variant": "C"
+      }
+    }
+  },
+  "practice": [
+    {
+      "id": "p1",
+      "concept": "compounding-frequency",
+      "kind": "which_method",
+      "prompt": "Which number should you use to rank savings accounts whose rates are quoted on different schedules?",
+      "answer": "The effective annual rate of each account.",
+      "rubric": "Full marks for the effective annual rate.",
+      "citation": "(slide 2)",
+      "difficulty": 1,
+      "variant": null
+    }
+  ]
+}

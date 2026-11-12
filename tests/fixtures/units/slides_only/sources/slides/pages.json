@@ -1,0 +1,20 @@
+[
+  {
+    "n": 1,
+    "label": "1",
+    "text": "Simple and compound interest\nSimple: interest on the deposit only\nCompound: interest on interest",
+    "image": null
+  },
+  {
+    "n": 2,
+    "label": "2",
+    "text": "Compounding frequency\nYearly, monthly or daily\nAPR versus effective annual rate",
+    "image": null
+  },
+  {
+    "n": 3,
+    "label": "3",
+    "text": "Continuous compounding\nThe limit as the period shrinks to zero",
+    "image": null
+  }
+]

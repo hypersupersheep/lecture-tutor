@@ -1,0 +1,16 @@
+[
+  {
+    "id": "card-1",
+    "concept": "compound-interest",
+    "front": "What does compounding add to the balance?",
+    "back": "The interest earned so far, which then earns interest itself.",
+    "citation": "(slide 1)"
+  },
+  {
+    "id": "card-2",
+    "concept": "compounding-frequency",
+    "front": "Why compare effective annual rates rather than quoted rates?",
+    "back": "Quoted rates hide how often interest is added; effective rates put every schedule on one yearly footing.",
+    "citation": "(slide 2)"
+  }
+]

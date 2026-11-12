@@ -370,6 +370,24 @@ def _cmd_map_mermaid(args) -> int:
     return EXIT_OK
 
 
+def _cmd_verify(args) -> int:
+    from pathlib import Path
+
+    from .verify import run_verify
+
+    result = run_verify(Path(args.unit))
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        for check in result["checks"]:
+            print(f"{check['status']:<4}  {check['name']}")
+            if check["status"] != "PASS":
+                for detail in check["details"]:
+                    print(f"      {detail}")
+        print(result["report"])
+    return EXIT_OK if result["overall"] == "PASS" else EXIT_FAIL
+
+
 def _positive_number(value: str) -> float:
     """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
@@ -516,7 +534,10 @@ def build_parser() -> argparse.ArgumentParser:
     mm.add_argument("--unit", required=True, help="the unit folder")
     mm.add_argument("--view", default=None, help="export only this view (default: the whole map)")
     mm.set_defaults(func=_cmd_map_mermaid)
-    _stub(sub, "verify")
+    ver = sub.add_parser("verify", help="run the delivery gate on a unit and write verify.json")
+    ver.add_argument("--unit", required=True, help="the unit folder")
+    ver.add_argument("--json", action="store_true", help="print the result as one JSON line instead of a table")
+    ver.set_defaults(func=_cmd_verify)
     _stub(sub, "selftest")
     return parser
 

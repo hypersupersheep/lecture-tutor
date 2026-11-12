@@ -1,0 +1,35 @@
+{
+  "language": "en",
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 30.0,
+      "text": "Today we look at how savings grow when interest is left in the account."
+    },
+    {
+      "start": 30.0,
+      "end": 60.0,
+      "text": "With simple interest you earn the same amount every period, because interest is paid only on the original deposit."
+    },
+    {
+      "start": 60.0,
+      "end": 90.0,
+      "text": "With compound interest, the interest you earned is added to the balance, and next period it earns interest too."
+    },
+    {
+      "start": 90.0,
+      "end": 120.0,
+      "text": "So compounding means interest on interest, and the gap over simple interest widens the longer you wait."
+    },
+    {
+      "start": 120.0,
+      "end": 150.0,
+      "text": "The second idea is frequency: a bank can add interest once a year, once a month or even every day."
+    },
+    {
+      "start": 150.0,
+      "end": 178.0,
+      "text": "More frequent compounding gives a slightly higher effective annual rate, which is why lenders quote an APR and savers should compare effective rates."
+    }
+  ]
+}

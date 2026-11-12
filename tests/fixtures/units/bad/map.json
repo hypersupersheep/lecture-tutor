@@ -1,0 +1,61 @@
+{
+  "nodes": [
+    {
+      "id": "simple",
+      "label": "Simple interest",
+      "type": "definition",
+      "order": 1,
+      "citation": "slide 1"
+    },
+    {
+      "id": "compound",
+      "label": "Compound interest",
+      "type": "definition",
+      "order": 2,
+      "citation": "slide 1"
+    },
+    {
+      "id": "frequency",
+      "label": "Compounding frequency",
+      "type": "method",
+      "order": 3,
+      "citation": "slide 2"
+    },
+    {
+      "id": "ear",
+      "label": "Effective annual rate",
+      "type": "definition",
+      "order": 4,
+      "citation": "slide 2"
+    },
+    {
+      "id": "quoted",
+      "label": "Comparing quoted rates directly",
+      "type": "pitfall",
+      "order": 5,
+      "citation": "slide 2"
+    }
+  ],
+  "edges": [
+    {
+      "from": "compound",
+      "to": "simple",
+      "verb": "grows faster than"
+    },
+    {
+      "from": "frequency",
+      "to": "compound",
+      "verb": "sets the pace of"
+    },
+    {
+      "from": "frequency",
+      "to": "ear",
+      "verb": "raises"
+    },
+    {
+      "from": "ear",
+      "to": "quoted",
+      "verb": "avoids"
+    }
+  ]
+}

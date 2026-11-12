@@ -1,0 +1,48 @@
+{
+  "course": "demo-course",
+  "unit": "unit-01",
+  "goal": "deep",
+  "content_type": "concept",
+  "note_language": "en",
+  "lecture_language": "en",
+  "duration_s": 180,
+  "outputs": [
+    "explanation",
+    "pretest",
+    "quiz",
+    "cards",
+    "map"
+  ],
+  "sections": [
+    {
+      "heading": "Interest on interest",
+      "citations": [
+        "(slide 1)",
+        "(slide 2)"
+      ]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "compound-interest",
+      "name": "Compound interest",
+      "type": "definition",
+      "citations": [
+        "(slide 1)"
+      ]
+    },
+    {
+      "id": "compounding-frequency",
+      "name": "Compounding frequency",
+      "type": "method",
+      "citations": [
+        "(slide 2)"
+      ]
+    }
+  ],
+  "tracked": [
+    "compound-interest",
+    "compounding-frequency"
+  ],
+  "output_target": "markdown"
+}
