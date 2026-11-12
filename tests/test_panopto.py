@@ -134,6 +134,13 @@ def test_malformed_contents_are_ignored(tmp_path):
 
 
 def test_non_list_details_is_empty_transcript(tmp_path):
+    """An extract with `details` and no transcript is EmptyTranscript.
+
+    `details` is a string in the real extract (panopto_extract.js), so it
+    never supplies transcript lines; the error comes from the missing
+    transcript. test_non_string_details_has_no_lecture_date covers a
+    `details` that is not a string.
+    """
     extract = write_extract(tmp_path, "d.json", {"details": "abc"})
     unit = tmp_path / "u"
     with pytest.raises(EmptyTranscript):
