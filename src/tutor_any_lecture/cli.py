@@ -77,6 +77,25 @@ def _cmd_profile_set(args) -> int:
     return EXIT_OK
 
 
+def _cmd_doctor(args) -> int:
+    from . import doctor
+
+    report = doctor.run_doctor()
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False))
+    else:
+        print(f"tutor-any-lecture {report['version']}")
+        for check in report["checks"]:
+            if check["ok"]:
+                print(f"[ok] {check['name']}: {check['detail']}")
+                continue
+            tag = "[warn]" if check["fix"].startswith("Optional: ") else "[FAIL]"
+            print(f"{tag} {check['name']}: {check['detail']}")
+            print(f"  fix: {check['fix']}")
+        print("ready" if report["ready"] else "not ready")
+    return EXIT_OK if report["ready"] else EXIT_ACTION
+
+
 def _run_acquire(call) -> int:
     """Run one acquisition and print its one-line JSON result.
 
@@ -421,7 +440,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     set_.set_defaults(func=_cmd_profile_set)
 
-    _stub(sub, "doctor")
+    doc = sub.add_parser("doctor", help="check that this machine is ready to run the tool")
+    doc.add_argument("--json", action="store_true", help="print the report as one JSON line")
+    doc.set_defaults(func=_cmd_doctor)
     acquire = sub.add_parser("acquire", help="get a lecture's transcript into a unit folder")
     acquire_sub = acquire.add_subparsers(dest="acquire_command")
 
