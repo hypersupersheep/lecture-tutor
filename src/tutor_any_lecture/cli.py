@@ -261,6 +261,39 @@ def _cmd_items_get(args) -> int:
     return EXIT_OK
 
 
+def _cmd_cards_export(args) -> int:
+    from pathlib import Path
+
+    from . import cards
+
+    try:
+        path = cards.export_tsv(Path(args.unit))
+    except ValueError as e:
+        print(str(e).replace("\n", " "), file=sys.stderr)
+        return EXIT_FAIL
+    print(json.dumps({"path": str(path)}, ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_cards_add_misses(args) -> int:
+    from pathlib import Path
+
+    from . import cards, config
+    from .plan import load_plan
+    from .unit import UnitPaths
+
+    unit = Path(args.unit)
+    course = load_plan(UnitPaths(unit).plan).course
+    ws = Path(args.workspace) if args.workspace is not None else config.workspace()
+    try:
+        added = cards.add_misses(unit, course, ws)
+    except ValueError as e:
+        print(str(e).replace("\n", " "), file=sys.stderr)
+        return EXIT_FAIL
+    print(json.dumps({"added": added, "path": str(UnitPaths(unit).cards_tsv)}, ensure_ascii=False))
+    return EXIT_OK
+
+
 def _cmd_progress_log(args) -> int:
     from pathlib import Path
 
@@ -405,8 +438,18 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--unit", required=True, help="the unit folder")
     ig.add_argument("--id", required=True, help="the item id")
     ig.set_defaults(func=_cmd_items_get)
-    _stub(sub, "cards")
-    progress = sub.add_parser("progress", help="log quiz attempts, list due reviews, render the progress page")
+    cards = sub.add_parser("cards", help="export Anki cards, add cards for missed quiz items")
+    cards_sub = cards.add_subparsers(dest="cards_command", required=True)
+    ce = cards_sub.add_parser("export", help="write cards.tsv (Anki import) from cards.json")
+    ce.add_argument("--unit", required=True, help="the unit folder")
+    ce.set_defaults(func=_cmd_cards_export)
+    cm = cards_sub.add_parser(
+        "add-misses", help="add a card for each item missed after the lecture; course comes from plan.json"
+    )
+    cm.add_argument("--unit", required=True, help="the unit folder")
+    cm.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
+    cm.set_defaults(func=_cmd_cards_add_misses)
+    progress =sub.add_parser("progress", help="log quiz attempts, list due reviews, render the progress page")
     progress_sub = progress.add_subparsers(dest="progress_command", required=True)
     pl = progress_sub.add_parser("log", help="log one attempt at an item; course and unit come from plan.json")
     pl.add_argument("--unit", required=True, help="the unit folder")
