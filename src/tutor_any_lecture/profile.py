@@ -1,0 +1,154 @@
+"""The user profile: load, save and change it, with the public_video_audio consent gate."""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .config import config_dir
+
+PUBLIC_VIDEO_AUDIO_NOTICE = "Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded."
+
+PROFILE_FILE_NAME = "profile.yaml"
+
+# Fields whose value must come from a fixed set. Every other string field is free text.
+ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
+    "goal": ("deep", "exam", "quick"),
+    "terms": ("bilingual", "note", "original"),
+    "level": ("auto", "beginner", "intermediate", "advanced"),
+    "output_target": ("markdown", "obsidian", "notion"),
+    "downloads": ("ask", "allow"),
+    "public_video_audio": ("on", "off"),
+}
+
+
+class ProfileError(Exception):
+    """A profile file or a requested change is invalid. The message names the key."""
+
+
+class ConsentRequired(Exception):
+    """Turning public_video_audio on needs explicit consent. ``str(e)`` is the notice."""
+
+    def __init__(self, notice: str) -> None:
+        super().__init__(notice)
+        self.notice = notice
+
+
+@dataclass
+class Profile:
+    note_language: str = "auto"
+    lecture_language: str = "auto"
+    terms: str = "bilingual"
+    level: str = "auto"
+    goal: str = "deep"
+    outputs: list[str] = field(default_factory=lambda: ["explanation", "pretest", "quiz", "cards", "map"])
+    output_target: str = "markdown"
+    workspace: str = "~/TutorAnyLecture"
+    obsidian_vault: str = ""
+    naming: str = "default"
+    downloads: str = "ask"
+    public_video_audio: str = "off"
+    platforms: dict[str, str] = field(default_factory=dict)
+
+
+FIELD_NAMES = tuple(f.name for f in dataclasses.fields(Profile))
+# outputs and platforms are structured; the other eleven fields hold strings.
+STRING_FIELDS = tuple(name for name in FIELD_NAMES if name not in ("outputs", "platforms"))
+
+
+def _profile_file() -> Path:
+    return config_dir() / PROFILE_FILE_NAME
+
+
+def _check_key(key: Any) -> None:
+    if key not in FIELD_NAMES:
+        raise ProfileError(f"unknown profile key {key!r}; known keys: {', '.join(FIELD_NAMES)}")
+
+
+def _check_allowed(key: str, value: Any) -> None:
+    allowed = ALLOWED_VALUES.get(key)
+    if allowed is not None and value not in allowed:
+        raise ProfileError(f"{key}: {value!r} is not allowed; allowed values: {', '.join(allowed)}")
+
+
+def _check_structured(key: str, value: Any) -> None:
+    if key == "outputs" and not isinstance(value, list):
+        raise ProfileError(f"outputs must be a list, for example [explanation, quiz]; got {value!r}")
+    if key == "platforms" and not isinstance(value, dict):
+        raise ProfileError(f"platforms must be a mapping, for example {{video: https://example.org}}; got {value!r}")
+
+
+def load_profile(path: Path | None = None) -> Profile:
+    """Read the profile file. A missing or empty file gives the defaults. Never writes."""
+    path = _profile_file() if path is None else Path(path)
+    if not path.exists():
+        return Profile()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise ProfileError(f"{path}: not valid YAML: {e}") from e
+    if data is None:
+        return Profile()
+    if not isinstance(data, dict):
+        raise ProfileError(f"{path}: the top level must be a mapping of key: value lines")
+
+    for key in data:
+        _check_key(key)
+
+    # PyYAML (YAML 1.1) reads a bare on/off as a boolean; map it back.
+    if isinstance(data.get("public_video_audio"), bool):
+        data["public_video_audio"] = "on" if data["public_video_audio"] else "off"
+
+    for key in STRING_FIELDS:
+        if key in data and not isinstance(data[key], str):
+            raise ProfileError(_not_a_string(key, data[key]))
+
+    for key, value in data.items():
+        _check_structured(key, value)
+        _check_allowed(key, value)
+
+    return Profile(**data)
+
+
+def _not_a_string(key: str, value: Any) -> str:
+    if value is None:
+        return f'{key}: the value is empty; write a value, quoted if needed (for example {key}: "value"), or delete the line'
+    # YAML 1.1 turns yes/no/on/off into booleans; suggest the quoted spelling.
+    example = {True: "yes", False: "no"}.get(value, value) if isinstance(value, bool) else value
+    return f'{key}: expected text but got {value!r}; quote the value, for example {key}: "{example}"'
+
+
+def save_profile(profile: Profile, path: Path | None = None) -> Path:
+    """Write all fields as YAML, creating the parent folder when needed."""
+    path = _profile_file() if path is None else Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = yaml.safe_dump(dataclasses.asdict(profile), allow_unicode=True, sort_keys=False)
+    path.write_text(text, encoding="utf-8", newline="\n")
+    return path
+
+
+def set_value(key: str, value: str, i_understand: bool = False) -> Profile:
+    """Change one key in the profile file. Every check runs before anything is written."""
+    _check_key(key)
+
+    parsed: Any = value
+    if key in ("outputs", "platforms"):
+        try:
+            parsed = yaml.safe_load(value)
+        except yaml.YAMLError as e:
+            raise ProfileError(f"{key}: not valid YAML: {e}") from e
+        _check_structured(key, parsed)
+    # String fields keep the raw string: through YAML, "on" would become True.
+
+    _check_allowed(key, parsed)
+
+    if key == "public_video_audio" and parsed == "on" and not i_understand:
+        raise ConsentRequired(PUBLIC_VIDEO_AUDIO_NOTICE)
+
+    profile = dataclasses.replace(load_profile(), **{key: parsed})
+    save_profile(profile)
+    return profile
