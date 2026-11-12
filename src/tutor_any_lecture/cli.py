@@ -135,6 +135,16 @@ def _cmd_acquire_url(args) -> int:
         return EXIT_BY_ERROR["NeedsUserFile"]
 
 
+def _cmd_acquire_route(args) -> int:
+    from pathlib import Path
+
+    from .acquire.router import route
+
+    plan = route(Path(args.folder), Path(args.unit))
+    print(json.dumps(plan, ensure_ascii=False))
+    return EXIT_OK
+
+
 def _cmd_transcribe(args) -> int:
     from pathlib import Path
 
@@ -245,6 +255,10 @@ def build_parser() -> argparse.ArgumentParser:
     url.add_argument("--unit", required=True, help="the unit folder")
     url.add_argument("--force", action="store_true", help="replace an existing transcript")
     url.set_defaults(func=_cmd_acquire_url)
+    rte = acquire_sub.add_parser("route", help="plan the acquisition commands for a materials folder (runs nothing)")
+    rte.add_argument("--folder", required=True, help="the materials folder")
+    rte.add_argument("--unit", required=True, help="the unit folder")
+    rte.set_defaults(func=_cmd_acquire_route)
     tr = sub.add_parser("transcribe", help="transcribe an audio file as it is, with ASR")
     tr.add_argument("--audio", required=True, help="the audio file")
     tr.add_argument("--unit", required=True, help="the unit folder")
