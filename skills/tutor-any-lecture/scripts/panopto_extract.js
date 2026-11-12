@@ -1,7 +1,7 @@
-// 在 Panopto Viewer 页面(<你的学校>.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=...)里执行。
-// 只读:从 DOM 取转写、章节目录、AI 摘要、详情;不点任何按钮,不碰 edit*/Cuts/Streams 面板。
-// 在真实课程录像上验证过:一节约 1.5 小时的课取到约 700 句转写、14 个章节。
-await new Promise(r => setTimeout(r, 4000));   // 等 React 把各个 tab pane 渲染完
+// Run this inside a Panopto Viewer page (<your-school>.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=...).
+// Read-only: it takes the transcript, the chapter list, the AI summary and the details from the DOM; it clicks no button and does not touch the edit*/Cuts/Streams panels.
+// Checked on real lecture recordings: a lecture of about 1.5 hours gave about 700 transcript lines and 14 chapters.
+await new Promise(r => setTimeout(r, 4000));   // wait for React to render every tab pane
 const clean = s => (s || '').replace(/\s+/g, ' ').replace(/^Retry Cancel /, '').trim();
 const lines = [...document.querySelectorAll('#transcriptTabPane li.index-event')].map(li => {
   const t = (li.querySelector('.index-time, .event-time') || {}).innerText;

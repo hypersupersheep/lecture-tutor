@@ -1,0 +1,16 @@
+{
+  "url": "https://example.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=00000000-0000-0000-0000-000000000000",
+  "title": "Sample Lecture 1: Tidal Pools",
+  "details": "Sample Lecture 1: Tidal Pools Sample Folder (2026-10-06 16:00+01:00)",
+  "duration": "-1:25",
+  "n": 6,
+  "contents": [
+    "Retry Cancel Welcome 0:00",
+    "Limpets and anemones 0:31",
+    "Closing Remarks 1:02:03",
+    "Untimed note",
+    ""
+  ],
+  "ai": ["A synthetic summary line."],
+  "transcript": "[0:00] Welcome to the sample lecture on tidal pools.\n[0:12] A tidal pool forms when the sea goes out.\n[0:31] Limpets hold on to the rock with a strong foot.\n[0:48] Anemones close up when the water is gone.\n[1:05] Count the species in one square metre.\n[1:20] That is all for today."
+}

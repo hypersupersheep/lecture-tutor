@@ -101,6 +101,14 @@ def _cmd_acquire_import(args) -> int:
     return _run_acquire(lambda: import_transcript(Path(args.file), Path(args.unit), args.duration, args.force))
 
 
+def _cmd_acquire_panopto(args) -> int:
+    from pathlib import Path
+
+    from .acquire.panopto import import_panopto
+
+    return _run_acquire(lambda: import_panopto(Path(args.extract), Path(args.unit), args.force))
+
+
 def _positive_seconds(value: str) -> float:
     """argparse type for --duration: a positive, finite number of seconds."""
     try:
@@ -150,6 +158,11 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--duration", type=_positive_seconds, default=None, help="the lecture length in seconds, if known")
     imp.add_argument("--force", action="store_true", help="replace an existing transcript")
     imp.set_defaults(func=_cmd_acquire_import)
+    pan = acquire_sub.add_parser("panopto", help="import the JSON that panopto_extract.js returns")
+    pan.add_argument("--extract", required=True, help="the extract JSON file")
+    pan.add_argument("--unit", required=True, help="the unit folder")
+    pan.add_argument("--force", action="store_true", help="replace an existing transcript")
+    pan.set_defaults(func=_cmd_acquire_panopto)
     _stub(sub, "transcribe")
     _stub(sub, "slides")
     _stub(sub, "items")
