@@ -1,0 +1,181 @@
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tutor_any_lecture import asr, slides
+from tutor_any_lecture.acquire.local import acquire_local, transcribe_audio
+from tutor_any_lecture.cli import main
+from tutor_any_lecture.ffmpeg import ffmpeg_exe
+from tutor_any_lecture.profile import Profile
+from tutor_any_lecture.source import SourceInfo, sha256_file
+from tutor_any_lecture.transcript import EmptyTranscript, Segment, Transcript
+from tutor_any_lecture.unit import UnitPaths
+
+
+def make_tone(folder):
+    """Local helper: a 2 s tone in ``folder``."""
+    folder.mkdir(parents=True, exist_ok=True)
+    src = folder / "tone.wav"
+    subprocess.run([ffmpeg_exe(), "-f", "lavfi", "-i", "sine=frequency=440:duration=2", str(src)],
+                   check=True, capture_output=True)
+    return src
+
+
+class FakeASR:
+    """Local helper: in-process stand-in for asr.transcribe."""
+
+    def __init__(self, segments=None, error=None):
+        self.segments = [Segment(0.0, 2.0, "hello world")] if segments is None else segments
+        self.error = error
+        self.calls = []
+
+    def __call__(self, audio, language, initial_prompt, budget_minutes, backend=None, model=None):
+        audio = Path(audio)
+        self.calls.append({"audio": audio, "existed": audio.exists(), "language": language,
+                           "initial_prompt": initial_prompt, "budget_minutes": budget_minutes,
+                           "backend": backend, "model": model})
+        if self.error is not None:
+            raise self.error
+        return Transcript(list(self.segments), "en")
+
+
+def install_fake_asr(monkeypatch, **kwargs):
+    """Local helper: replaces asr.transcribe and asr.resolve_backend in-process."""
+    fake = FakeASR(**kwargs)
+    monkeypatch.setattr(asr, "transcribe", fake)
+    monkeypatch.setattr(asr, "resolve_backend", lambda backend=None, model=None: (backend or "fake", model))
+    return fake
+
+
+def run_acquire_local_with_fake_asr(monkeypatch, tmp_path):
+    """Local helper: returns the temp dirs the audio lived in."""
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    acquire_local(src, unit, Profile(), False)
+    assert [c["existed"] for c in fake.calls] == [True]   # the temp audio existed while ASR ran
+    dirs = [c["audio"].parent for c in fake.calls]
+    assert all(d != src.parent and unit not in (d, *d.parents) for d in dirs)
+    return dirs
+
+
+def test_local_deletes_temp_audio(monkeypatch, tmp_path):
+    tmp_dirs = run_acquire_local_with_fake_asr(monkeypatch, tmp_path)
+    assert tmp_dirs
+    assert all(not d.exists() for d in tmp_dirs)
+
+
+def test_local_writes_source_and_language(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    paths = UnitPaths(unit)
+    paths.ensure()
+    SourceInfo(kind="slides-only", title="deck", url=None, platform=None, duration=None,
+               lecture_language=None, acquisition="slides", health={}, tool_versions={},
+               inputs_sha256={}).write(paths.source)
+    fake = install_fake_asr(monkeypatch)
+    h = acquire_local(src, unit, Profile(), False)   # a slides-only source.json needs no --force
+    assert h.ok
+    call = fake.calls[0]
+    assert call["language"] is None                  # profile "auto" -> None
+    assert call["initial_prompt"] == ""              # no pages.json -> slide_terms([]) == ""
+    assert call["budget_minutes"] == 30.0            # max(30.0, 2 * 2.0 / 60)
+    assert call["backend"] == "fake" and call["model"] is None
+    assert paths.transcript.exists()
+    source = json.loads(paths.source.read_text(encoding="utf-8"))
+    assert source["kind"] == "local" and source["acquisition"] == "asr"
+    assert source["lecture_language"] == "en"
+    assert abs(source["duration"] - 2.0) < 0.1
+    assert source["inputs_sha256"] == {"tone.wav": sha256_file(src)}
+    assert source["health"]["ok"] is True
+    assert source["tool_versions"]["asr_backend"] == "fake"
+
+
+def test_local_passes_slide_terms_as_prompt(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    pages = [slides.Page(1, None, "Black-Scholes martingale")]
+    monkeypatch.setattr(slides, "load_pages", lambda unit: pages)
+    fake = install_fake_asr(monkeypatch)
+    acquire_local(src, unit, Profile(), False)
+    prompt = fake.calls[0]["initial_prompt"]
+    assert prompt == slides.slide_terms(pages) and "martingale" in prompt
+
+
+def test_local_refuses_overwrite(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    acquire_local(src, unit, Profile(), False)
+    before = UnitPaths(unit).transcript.read_bytes()
+    with pytest.raises(FileExistsError):
+        acquire_local(src, unit, Profile(), False)
+    with pytest.raises(FileExistsError):
+        transcribe_audio(src, unit, Profile(), False)
+    assert len(fake.calls) == 1                       # the fake ASR was not invoked again
+    assert UnitPaths(unit).transcript.read_bytes() == before
+    acquire_local(src, unit, Profile(), True)         # force overwrites
+    assert len(fake.calls) == 2
+
+
+def test_local_empty_transcript_writes_nothing(monkeypatch, tmp_path, tmp_cfg, capsys):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    install_fake_asr(monkeypatch, segments=[])
+    with pytest.raises(EmptyTranscript):
+        acquire_local(src, unit, Profile(), False)
+    assert not UnitPaths(unit).transcript.exists() and not UnitPaths(unit).source.exists()
+    code = main(["acquire", "local", "--file", str(src), "--unit", str(unit)])
+    assert code == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "error", "message": "no timed segments found"}
+
+
+def test_cli_acquire_local_ok(monkeypatch, tmp_path, tmp_cfg, capsys):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    code = main(["acquire", "local", "--file", str(src), "--unit", str(unit), "--budget-minutes", "7"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["status"] == "ok" and out["health"]["ok"] is True
+    assert fake.calls[0]["budget_minutes"] == 7.0
+    assert main(["acquire", "local", "--file", str(src), "--unit", str(unit)]) == 3   # exists, no --force
+    assert main(["acquire", "local", "--file", str(src), "--unit", str(unit), "--force"]) == 0
+
+
+def test_cli_transcribe_ok(monkeypatch, tmp_path, tmp_cfg, capsys):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    code = main(["transcribe", "--audio", str(src), "--unit", str(unit),
+                 "--backend", "fake", "--model", "m1", "--budget-minutes", "7"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["status"] == "ok"
+    call = fake.calls[0]
+    assert call["audio"] == src                       # no extraction step
+    assert call["backend"] == "fake" and call["model"] == "m1" and call["budget_minutes"] == 7.0
+    source = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    assert source["kind"] == "local" and source["acquisition"] == "asr"
+    assert source["inputs_sha256"] == {"tone.wav": sha256_file(src)}
+    assert source["tool_versions"]["asr_model"] == "m1"
+    assert main(["transcribe", "--audio", str(src), "--unit", str(unit)]) == 3        # exists, no --force
+    assert len(fake.calls) == 1
+
+
+def test_cli_missing_file_exits_1(monkeypatch, tmp_path, tmp_cfg):
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch)
+    missing = tmp_path / "课程 资料" / "nope.wav"
+    assert main(["acquire", "local", "--file", str(missing), "--unit", str(unit)]) == 1
+    assert main(["transcribe", "--audio", str(missing), "--unit", str(unit)]) == 1
+    assert not fake.calls and not UnitPaths(unit).transcript.exists()
+
+
+def test_cli_budget_exceeded_exits_3(monkeypatch, tmp_path, tmp_cfg):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    fake = install_fake_asr(monkeypatch, error=asr.BudgetExceeded("over budget"))
+    assert main(["acquire", "local", "--file", str(src), "--unit", str(unit)]) == 3
+    assert not UnitPaths(unit).transcript.exists()
+    assert fake.calls and not fake.calls[0]["audio"].parent.exists()   # temp audio removed on failure too

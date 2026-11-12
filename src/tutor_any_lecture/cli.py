@@ -109,6 +109,33 @@ def _cmd_acquire_panopto(args) -> int:
     return _run_acquire(lambda: import_panopto(Path(args.extract), Path(args.unit), args.force))
 
 
+def _cmd_acquire_local(args) -> int:
+    from pathlib import Path
+
+    from .acquire.local import acquire_local
+    from .profile import load_profile
+
+    profile = load_profile()
+    return _run_acquire(
+        lambda: acquire_local(Path(args.file), Path(args.unit), profile, args.force, budget_minutes=args.budget_minutes)
+    )
+
+
+def _cmd_transcribe(args) -> int:
+    from pathlib import Path
+
+    from .acquire.local import transcribe_audio
+    from .profile import load_profile
+
+    profile = load_profile()
+    return _run_acquire(
+        lambda: transcribe_audio(
+            Path(args.audio), Path(args.unit), profile, args.force,
+            budget_minutes=args.budget_minutes, backend=args.backend, model=args.model,
+        )
+    )
+
+
 def _cmd_slides(args) -> int:
     if args.pdf is None or args.unit is None:
         print(
@@ -192,7 +219,22 @@ def build_parser() -> argparse.ArgumentParser:
     pan.add_argument("--unit", required=True, help="the unit folder")
     pan.add_argument("--force", action="store_true", help="replace an existing transcript")
     pan.set_defaults(func=_cmd_acquire_panopto)
-    _stub(sub, "transcribe")
+    loc = acquire_sub.add_parser("local", help="transcribe a local video or audio file with ASR")
+    loc.add_argument("--file", required=True, help="the video or audio file")
+    loc.add_argument("--unit", required=True, help="the unit folder")
+    loc.add_argument("--force", action="store_true", help="replace an existing transcript")
+    loc.add_argument("--budget-minutes", type=float, default=None,
+                     help="stop ASR after this many minutes (default: max(30, 2 x the media length))")
+    loc.set_defaults(func=_cmd_acquire_local)
+    tr = sub.add_parser("transcribe", help="transcribe an audio file as it is, with ASR")
+    tr.add_argument("--audio", required=True, help="the audio file")
+    tr.add_argument("--unit", required=True, help="the unit folder")
+    tr.add_argument("--backend", default=None, help="the ASR backend (mlx or faster; default: chosen for this machine)")
+    tr.add_argument("--model", default=None, help="the ASR model (default: chosen for the backend and machine)")
+    tr.add_argument("--budget-minutes", type=float, default=None,
+                    help="stop ASR after this many minutes (default: max(30, 2 x the media length))")
+    tr.add_argument("--force", action="store_true", help="replace an existing transcript")
+    tr.set_defaults(func=_cmd_transcribe)
     slides = sub.add_parser("slides", help="read a slide PDF into the unit, or flag ASR suspects")
     slides.add_argument("--pdf", default=None, help="the slide PDF")
     slides.add_argument("--unit", default=None, help="the unit folder")
