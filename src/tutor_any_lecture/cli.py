@@ -333,6 +333,43 @@ def _cmd_progress_render(args) -> int:
     return EXIT_OK
 
 
+def _cmd_map_validate(args) -> int:
+    import json
+    from pathlib import Path
+
+    from . import conceptmap
+
+    try:
+        results = conceptmap.validate_unit(Path(args.unit))
+    except json.JSONDecodeError as e:
+        print(f"map.json is not valid JSON: {e}", file=sys.stderr)
+        return EXIT_FAIL
+    print(conceptmap.format_results(results))
+    return EXIT_FAIL if any(r.status == "FAIL" for r in results) else EXIT_OK
+
+
+def _cmd_map_mermaid(args) -> int:
+    import json
+    from pathlib import Path
+
+    from . import conceptmap
+
+    try:
+        path = conceptmap.export_mermaid(Path(args.unit), args.view)
+    except json.JSONDecodeError as e:
+        # Before ValueError: JSONDecodeError is a ValueError.
+        print(f"map.json is not valid JSON: {e}", file=sys.stderr)
+        return EXIT_FAIL
+    except conceptmap.MapInvalid as e:
+        print(conceptmap.format_results(e.results), file=sys.stderr)
+        return EXIT_FAIL
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_USAGE
+    print(str(path))
+    return EXIT_OK
+
+
 def _positive_number(value: str) -> float:
     """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
@@ -470,7 +507,15 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--course", required=True, help="the course name, as in plan.json")
     pr.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
     pr.set_defaults(func=_cmd_progress_render)
-    _stub(sub, "map")
+    map_ = sub.add_parser("map", help="check the concept map, export it as a Mermaid flowchart")
+    map_sub = map_.add_subparsers(dest="map_command", required=True)
+    mv = map_sub.add_parser("validate", help="check map.json")
+    mv.add_argument("--unit", required=True, help="the unit folder")
+    mv.set_defaults(func=_cmd_map_validate)
+    mm = map_sub.add_parser("mermaid", help="write overview.mmd from map.json")
+    mm.add_argument("--unit", required=True, help="the unit folder")
+    mm.add_argument("--view", default=None, help="export only this view (default: the whole map)")
+    mm.set_defaults(func=_cmd_map_mermaid)
     _stub(sub, "verify")
     _stub(sub, "selftest")
     return parser
