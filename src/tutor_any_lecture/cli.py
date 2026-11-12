@@ -121,6 +121,20 @@ def _cmd_acquire_local(args) -> int:
     )
 
 
+def _cmd_acquire_url(args) -> int:
+    from pathlib import Path
+
+    from .acquire.url import NeedsUserFile, acquire_url
+    from .profile import load_profile
+
+    profile = load_profile()
+    try:
+        return _run_acquire(lambda: acquire_url(args.url, Path(args.unit), profile, args.force))
+    except NeedsUserFile as e:
+        print(json.dumps({"status": "needs_user_file", "message": str(e)}, ensure_ascii=False))
+        return EXIT_BY_ERROR["NeedsUserFile"]
+
+
 def _cmd_transcribe(args) -> int:
     from pathlib import Path
 
@@ -226,6 +240,11 @@ def build_parser() -> argparse.ArgumentParser:
     loc.add_argument("--budget-minutes", type=float, default=None,
                      help="stop ASR after this many minutes (default: max(30, 2 x the media length))")
     loc.set_defaults(func=_cmd_acquire_local)
+    url = acquire_sub.add_parser("url", help="get a public video's captions, or (with consent) its audio")
+    url.add_argument("--url", required=True, help="the video URL")
+    url.add_argument("--unit", required=True, help="the unit folder")
+    url.add_argument("--force", action="store_true", help="replace an existing transcript")
+    url.set_defaults(func=_cmd_acquire_url)
     tr = sub.add_parser("transcribe", help="transcribe an audio file as it is, with ASR")
     tr.add_argument("--audio", required=True, help="the audio file")
     tr.add_argument("--unit", required=True, help="the unit folder")
