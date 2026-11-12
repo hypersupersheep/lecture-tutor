@@ -449,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
     cm.add_argument("--unit", required=True, help="the unit folder")
     cm.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
     cm.set_defaults(func=_cmd_cards_add_misses)
-    progress =sub.add_parser("progress", help="log quiz attempts, list due reviews, render the progress page")
+    progress = sub.add_parser("progress", help="log quiz attempts, list due reviews, render the progress page")
     progress_sub = progress.add_subparsers(dest="progress_command", required=True)
     pl = progress_sub.add_parser("log", help="log one attempt at an item; course and unit come from plan.json")
     pl.add_argument("--unit", required=True, help="the unit folder")
