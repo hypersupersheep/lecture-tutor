@@ -14,6 +14,7 @@ import dataclasses
 import json
 import math
 import sys
+from datetime import date
 
 EXIT_OK = 0       # PASS or WARN, healthy transcript, doctor ready
 EXIT_FAIL = 1     # a check failed
@@ -260,6 +261,45 @@ def _cmd_items_get(args) -> int:
     return EXIT_OK
 
 
+def _cmd_progress_log(args) -> int:
+    from pathlib import Path
+
+    from . import config, progress
+
+    ws = Path(args.workspace) if args.workspace is not None else config.workspace()
+    try:
+        a = progress.log_from_unit(
+            Path(args.unit), args.item, args.phase, args.score, args.confidence, args.exposure, ws
+        )
+    except KeyError:
+        print(f"unknown item id: {args.item}", file=sys.stderr)
+        return EXIT_USAGE
+    print(json.dumps(dataclasses.asdict(a), ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_progress_due(args) -> int:
+    from pathlib import Path
+
+    from . import config, progress
+
+    ws = Path(args.workspace) if args.workspace is not None else config.workspace()
+    day = args.date if args.date is not None else date.today()
+    print(json.dumps(progress.due(progress.load_attempts(args.course, ws), day), ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_progress_render(args) -> int:
+    from pathlib import Path
+
+    from . import config, progress
+
+    ws = Path(args.workspace) if args.workspace is not None else config.workspace()
+    path = progress.render_progress(args.course, ws, date.today())
+    print(str(path))
+    return EXIT_OK
+
+
 def _positive_number(value: str) -> float:
     """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
@@ -366,7 +406,27 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--id", required=True, help="the item id")
     ig.set_defaults(func=_cmd_items_get)
     _stub(sub, "cards")
-    _stub(sub, "progress")
+    progress = sub.add_parser("progress", help="log quiz attempts, list due reviews, render the progress page")
+    progress_sub = progress.add_subparsers(dest="progress_command", required=True)
+    pl = progress_sub.add_parser("log", help="log one attempt at an item; course and unit come from plan.json")
+    pl.add_argument("--unit", required=True, help="the unit folder")
+    pl.add_argument("--item", required=True, help="the item id")
+    pl.add_argument("--phase", required=True, choices=["pre", "post", "d1", "d7", "d21", "practice"], help="the phase")
+    pl.add_argument("--score", required=True, type=float, choices=[0.0, 0.5, 1.0], help="the score")
+    pl.add_argument("--confidence", required=True, type=int, choices=[1, 2, 3], help="the confidence")
+    pl.add_argument("--exposure", default="unknown", choices=["none", "attended", "watched", "unknown"],
+                    help="how the lecture was seen (default: unknown)")
+    pl.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
+    pl.set_defaults(func=_cmd_progress_log)
+    pd = progress_sub.add_parser("due", help="print the reviews due as JSON")
+    pd.add_argument("--course", required=True, help="the course name, as in plan.json")
+    pd.add_argument("--date", type=date.fromisoformat, default=None, help="the day, YYYY-MM-DD (default: today)")
+    pd.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
+    pd.set_defaults(func=_cmd_progress_due)
+    pr = progress_sub.add_parser("render", help="write the course's progress page")
+    pr.add_argument("--course", required=True, help="the course name, as in plan.json")
+    pr.add_argument("--workspace", default=None, help="the workspace folder (default: the profile's)")
+    pr.set_defaults(func=_cmd_progress_render)
     _stub(sub, "map")
     _stub(sub, "verify")
     _stub(sub, "selftest")
