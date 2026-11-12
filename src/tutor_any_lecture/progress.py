@@ -71,9 +71,11 @@ def load_attempts(course: str, workspace: Path) -> list[Attempt]:
     path = _progress_dir(workspace) / f"{course}.jsonl"
     if not path.exists():
         return []
+    # Split on "\n" only: str.splitlines() also breaks at U+2028/U+2029/U+0085, which
+    # json.dumps(ensure_ascii=False) leaves raw inside string values.
     return [
         Attempt(**json.loads(line))
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in path.read_text(encoding="utf-8").split("\n")
         if line.strip()
     ]
 

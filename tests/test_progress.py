@@ -162,6 +162,14 @@ def test_log_round_trip_null_variant(tmp_path):
     assert load_attempts("Other", tmp_path) == []
 
 
+def test_log_round_trip_unicode_line_separators(tmp_path):
+    # json.dumps(ensure_ascii=False) writes U+2028, U+2029 and U+0085 raw; they must not split a record.
+    a = attempt(citation="a b c\x85d", concept="x y")
+    log_attempt(a, tmp_path)
+    log_attempt(attempt(), tmp_path)
+    assert load_attempts("C", tmp_path) == [a, attempt()]
+
+
 # ---- page ------------------------------------------------------------------
 
 
