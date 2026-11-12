@@ -109,6 +109,35 @@ def _cmd_acquire_panopto(args) -> int:
     return _run_acquire(lambda: import_panopto(Path(args.extract), Path(args.unit), args.force))
 
 
+def _cmd_slides(args) -> int:
+    if args.pdf is None or args.unit is None:
+        print(
+            "usage: tutor-any-lecture slides --pdf F --unit DIR [--images]"
+            " | tutor-any-lecture slides suspects --unit DIR",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    from pathlib import Path
+
+    from .slides import extract_pdf
+
+    pages = extract_pdf(Path(args.pdf), Path(args.unit), images=args.images)
+    labelled = sum(1 for p in pages if p.label is not None)
+    print(json.dumps({"status": "ok", "pages": len(pages), "labelled": labelled}, ensure_ascii=False))
+    return EXIT_OK
+
+
+def _cmd_slides_suspects(args) -> int:
+    from pathlib import Path
+
+    from .suspects import write_suspects
+
+    found = write_suspects(Path(args.unit))
+    print(json.dumps({"status": "ok", "suspects": len(found)}, ensure_ascii=False))
+    return EXIT_OK
+
+
 def _positive_seconds(value: str) -> float:
     """argparse type for --duration: a positive, finite number of seconds."""
     try:
@@ -164,7 +193,15 @@ def build_parser() -> argparse.ArgumentParser:
     pan.add_argument("--force", action="store_true", help="replace an existing transcript")
     pan.set_defaults(func=_cmd_acquire_panopto)
     _stub(sub, "transcribe")
-    _stub(sub, "slides")
+    slides = sub.add_parser("slides", help="read a slide PDF into the unit, or flag ASR suspects")
+    slides.add_argument("--pdf", default=None, help="the slide PDF")
+    slides.add_argument("--unit", default=None, help="the unit folder")
+    slides.add_argument("--images", action="store_true", help="also save one PNG per page")
+    slides.set_defaults(func=_cmd_slides)
+    slides_sub = slides.add_subparsers(dest="slides_command")
+    suspects = slides_sub.add_parser("suspects", help="flag transcript words that look like misheard slide terms")
+    suspects.add_argument("--unit", required=True, help="the unit folder")
+    suspects.set_defaults(func=_cmd_slides_suspects)
     _stub(sub, "items")
     _stub(sub, "cards")
     _stub(sub, "progress")
