@@ -5,6 +5,8 @@
   </picture>
 </p>
 
+# Tutor Any Lecture
+
 <p align="center">
   <a href="#安装"><img alt="Claude Code skills" src="https://img.shields.io/badge/Claude_Code-skills-D97757?style=flat-square"></a>
   <img alt="Panopto and Moodle" src="https://img.shields.io/badge/Panopto_%2B_Moodle-tested_on_real_courses-2B6CB0?style=flat-square">
@@ -96,8 +98,8 @@ flowchart TD
 2. **找录像**:每门课给录像起的名字都不一样,所以 Claude 列出 Moodle 课程页上全部 LTI 活动和 Panopto 区块再挑,打开 viewer 时带 `autoplay=false`。
 3. **取转写**:`panopto_extract.js` 从页面 DOM 读转写、章节、AI 摘要和讲课日期,不点任何按钮。
 4. **读材料,先整理**:老师在哪里换话题、课件逐页清单、对照课件的误听清单、课上没讲到的页。
-5. **写**:先把要引用的原话连同出处抽到 `quotes.md`,再围绕引文写正文,遵守[写作契约](skills/lecture-tutor/references/writing-rules.md)。
-6. **自检**:[`note_stats.sh`](skills/lecture-tutor/scripts/note_stats.sh) 按契约量化检查(引文密度、段落长度、标题结构、高亮数量),亮红线就返工;再按课件逐页核对每个定义落在笔记哪里。
+5. **写**:先把要引用的原话连同出处抽到 `quotes.md`,再围绕引文写正文,遵守[写作契约](skills/tutor-any-lecture/references/writing-rules.md)。
+6. **自检**:[`note_stats.sh`](skills/tutor-any-lecture/scripts/note_stats.sh) 按契约量化检查(引文密度、段落长度、标题结构、高亮数量),亮红线就返工;再按课件逐页核对每个定义落在笔记哪里。
 7. **交付**:存进课程文件夹和 Obsidian vault,每周一个 `lecture_wN/`,图放 `截图/`。
 8. **画图、排版**:用另外两个 skill 画总览图、思维导图,排手写复习版。
 9. **录语音**:写一份适合听的讲稿,本地合成,再用 Whisper 转回文字核对术语和公式。
@@ -109,16 +111,14 @@ flowchart TD
 **方式一:复制 skill**
 
 ```bash
-git clone https://github.com/hypersupersheep/lecture-tutor.git
-cp -R lecture-tutor/skills/* ~/.claude/skills/
-pip install -r lecture-tutor/requirements.txt
+npx skills add hypersupersheep/tutor-any-lecture
 ```
 
 **方式二:作为 Claude Code 插件安装**
 
 ```text
-/plugin marketplace add hypersupersheep/lecture-tutor
-/plugin install lecture-tutor@lecture-tutor
+/plugin marketplace add hypersupersheep/tutor-any-lecture
+/plugin install tutor-any-lecture@tutor-any-lecture
 ```
 
 再把 `requirements.txt` 里的包装进你想让脚本用的 Python 环境。
@@ -127,10 +127,10 @@ pip install -r lecture-tutor/requirements.txt
 
 ```bash
 mkdir -p ~/.config/lecture-tutor
-cp lecture-tutor/skills/lecture-tutor/config.example.yaml ~/.config/lecture-tutor/config.yaml
+cp lecture-tutor/skills/tutor-any-lecture/config.example.yaml ~/.config/lecture-tutor/config.yaml
 ```
 
-填上课程资料文件夹、Obsidian 笔记文件夹、Python 解释器、学校的 Moodle 和 Panopto 地址,每门课一条。字段说明见 [`config.example.yaml`](skills/lecture-tutor/config.example.yaml)。
+填上课程资料文件夹、Obsidian 笔记文件夹、Python 解释器、学校的 Moodle 和 Panopto 地址,每门课一条。字段说明见 [`config.example.yaml`](skills/tutor-any-lecture/config.example.yaml)。
 
 ## 用法
 
@@ -147,12 +147,12 @@ cp lecture-tutor/skills/lecture-tutor/config.example.yaml ~/.config/lecture-tuto
 
 | Skill | 用途 | 能不能单独用 |
 |---|---|---|
-| [`lecture-tutor`](skills/lecture-tutor/SKILL.md) | 完整流程:找录像、取转写、写笔记并自检、交付、语音 | 画图和手写版要靠下面两个 |
+| [`lecture-tutor`](skills/tutor-any-lecture/SKILL.md) | 完整流程:找录像、取转写、写笔记并自检、交付、语音 | 画图和手写版要靠下面两个 |
 | [`handwritten-notes-pdf`](skills/handwritten-notes-pdf/SKILL.md) | 简化标记 → 网格纸手写风 A4 PDF,带 KaTeX 公式、荧光笔、红笔和便利贴 | 能,任何笔记都行 |
 | [`excalidraw-concept-map`](skills/excalidraw-concept-map/SKILL.md) | Mermaid 流程图 → Obsidian 里能打开、能编辑的手绘风 Excalidraw 图,附 PNG | 能,任何话题都行 |
 
 ```text
-skills/lecture-tutor/
+skills/tutor-any-lecture/
 ├── SKILL.md                     流程
 ├── config.example.yaml
 ├── references/

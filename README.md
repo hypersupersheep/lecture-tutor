@@ -5,6 +5,8 @@
   </picture>
 </p>
 
+# Tutor Any Lecture
+
 <p align="center">
   <a href="#install"><img alt="Claude Code skills" src="https://img.shields.io/badge/Claude_Code-skills-D97757?style=flat-square"></a>
   <img alt="Panopto and Moodle" src="https://img.shields.io/badge/Panopto_%2B_Moodle-tested_on_real_courses-2B6CB0?style=flat-square">
@@ -96,8 +98,8 @@ flowchart TD
 2. **Find the recording.** Claude lists every LTI activity and the Panopto block on the Moodle course page, because each course names its recordings differently, then opens the viewer with `autoplay=false`.
 3. **Read the transcript.** `panopto_extract.js` reads the transcript, chapters, AI summary and lecture date from the page's DOM. It clicks nothing.
 4. **Read everything** and plan: where the lecturer switches topic, a slide-by-slide inventory, a list of misheard words checked against the slides, and the slides that were never covered.
-5. **Write.** Quotes go into `quotes.md` with their sources first; the note is then written around them, following the [writing contract](skills/lecture-tutor/references/writing-rules.md).
-6. **Check.** [`note_stats.sh`](skills/lecture-tutor/scripts/note_stats.sh) measures the note against the contract (quote density, paragraph length, heading structure, highlight count) and flags red lines. Every definition on every slide is traced to a place in the note.
+5. **Write.** Quotes go into `quotes.md` with their sources first; the note is then written around them, following the [writing contract](skills/tutor-any-lecture/references/writing-rules.md).
+6. **Check.** [`note_stats.sh`](skills/tutor-any-lecture/scripts/note_stats.sh) measures the note against the contract (quote density, paragraph length, heading structure, highlight count) and flags red lines. Every definition on every slide is traced to a place in the note.
 7. **Deliver** to the course folder and the Obsidian vault, one `lecture_wN/` folder per week, images in `截图/`.
 8. **Draw and typeset** the overview map, concept map and review sheet with the two companion skills.
 9. **Record** the audio lesson: a script written for the ear, local TTS, then Whisper back-transcription to check terms and formulas.
@@ -109,16 +111,14 @@ flowchart TD
 **Option A: copy the skills**
 
 ```bash
-git clone https://github.com/hypersupersheep/lecture-tutor.git
-cp -R lecture-tutor/skills/* ~/.claude/skills/
-pip install -r lecture-tutor/requirements.txt
+npx skills add hypersupersheep/tutor-any-lecture
 ```
 
 **Option B: install as a Claude Code plugin**
 
 ```text
-/plugin marketplace add hypersupersheep/lecture-tutor
-/plugin install lecture-tutor@lecture-tutor
+/plugin marketplace add hypersupersheep/tutor-any-lecture
+/plugin install tutor-any-lecture@tutor-any-lecture
 ```
 
 Then install the Python packages from `requirements.txt` into the environment you want the scripts to use.
@@ -127,10 +127,10 @@ Then install the Python packages from `requirements.txt` into the environment yo
 
 ```bash
 mkdir -p ~/.config/lecture-tutor
-cp lecture-tutor/skills/lecture-tutor/config.example.yaml ~/.config/lecture-tutor/config.yaml
+cp lecture-tutor/skills/tutor-any-lecture/config.example.yaml ~/.config/lecture-tutor/config.yaml
 ```
 
-Fill in your course folder, Obsidian vault folder, Python interpreter, your university's Moodle and Panopto addresses, and one entry per course. See [`config.example.yaml`](skills/lecture-tutor/config.example.yaml).
+Fill in your course folder, Obsidian vault folder, Python interpreter, your university's Moodle and Panopto addresses, and one entry per course. See [`config.example.yaml`](skills/tutor-any-lecture/config.example.yaml).
 
 ## Usage
 
@@ -149,12 +149,12 @@ English requests work too; the notes come out in Chinese.
 
 | Skill | Use it for | Works on its own |
 |---|---|---|
-| [`lecture-tutor`](skills/lecture-tutor/SKILL.md) | The full pipeline: locate the recording, extract the transcript, write and check the note, deliver, audio lesson | Needs the two below for maps and review sheets |
+| [`lecture-tutor`](skills/tutor-any-lecture/SKILL.md) | The full pipeline: locate the recording, extract the transcript, write and check the note, deliver, audio lesson | Needs the two below for maps and review sheets |
 | [`handwritten-notes-pdf`](skills/handwritten-notes-pdf/SKILL.md) | A light markup → handwritten-style A4 PDF on grid paper, with KaTeX formulas, highlighter, red pen and sticky notes | Yes, for any notes |
 | [`excalidraw-concept-map`](skills/excalidraw-concept-map/SKILL.md) | A Mermaid flowchart → hand-drawn Excalidraw drawing that Obsidian can open and edit, plus a PNG | Yes, for any topic |
 
 ```text
-skills/lecture-tutor/
+skills/tutor-any-lecture/
 ├── SKILL.md                     the pipeline
 ├── config.example.yaml
 ├── references/

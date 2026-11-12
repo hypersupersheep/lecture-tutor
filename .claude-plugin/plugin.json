@@ -1,20 +1,21 @@
 {
-  "name": "lecture-tutor",
-  "description": "Turn lecture recordings (Panopto + Moodle) into sourced study notes, hand-drawn Excalidraw maps, a handwritten grid-paper review sheet and an audio lesson",
-  "version": "1.0.0",
+  "name": "tutor-any-lecture",
+  "description": "Turn any lecture video, recording or slide deck into a tutor: pretest, cited explanation, graded quiz, Anki review",
+  "version": "2.0.0-dev",
   "author": {
     "name": "Chenyang Sun"
   },
-  "homepage": "https://github.com/hypersupersheep/lecture-tutor",
-  "repository": "https://github.com/hypersupersheep/lecture-tutor",
+  "homepage": "https://github.com/hypersupersheep/tutor-any-lecture",
+  "repository": "https://github.com/hypersupersheep/tutor-any-lecture",
   "license": "MIT",
   "keywords": [
     "lecture",
+    "tutor",
     "study-notes",
+    "quiz",
+    "anki",
+    "spaced-repetition",
     "panopto",
-    "moodle",
-    "obsidian",
-    "excalidraw",
-    "text-to-speech"
+    "youtube"
   ]
 }

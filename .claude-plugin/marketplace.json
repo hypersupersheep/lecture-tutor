@@ -1,14 +1,16 @@
 {
-  "name": "lecture-tutor",
+  "name": "tutor-any-lecture",
   "description": "Claude Code skills that turn lecture recordings into study notes, maps, review sheets and audio lessons",
   "owner": {
     "name": "Chenyang Sun"
   },
   "plugins": [
     {
-      "name": "lecture-tutor",
-      "description": "Turn lecture recordings (Panopto + Moodle) into sourced study notes, hand-drawn Excalidraw maps, a handwritten grid-paper review sheet and an audio lesson",
-      "version": "1.0.0",
+      "name": "tutor-any-lecture",
+      "description": "Turn any lecture video, recording or slide deck into a tutor: pretest, cited explanation, graded quiz, Anki review",
+      "version": "2.0.0-dev",
+      "homepage": "https://github.com/hypersupersheep/tutor-any-lecture",
+      "repository": "https://github.com/hypersupersheep/tutor-any-lecture",
       "source": "./",
       "author": {
         "name": "Chenyang Sun"
