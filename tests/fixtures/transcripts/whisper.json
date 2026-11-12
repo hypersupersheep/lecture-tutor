@@ -1,0 +1,17 @@
+{
+  "text": " Compound interest grows on itself. The rate is five percent a year.",
+  "language": "en",
+  "segments": [
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 4.2,
+      "text": " Compound interest grows on itself.",
+      "words": [
+        {"word": " Compound", "start": 0.0, "end": 0.6},
+        {"word": " interest", "start": 0.6, "end": 1.1}
+      ]
+    },
+    {"id": 1, "start": 4.2, "end": 9.0, "text": " The rate is five percent a year."}
+  ]
+}

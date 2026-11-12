@@ -74,6 +74,32 @@ def _cmd_profile_set(args) -> int:
     return EXIT_OK
 
 
+def _run_acquire(call) -> int:
+    """Run one acquisition and print its one-line JSON result.
+
+    ``call`` takes no arguments and returns a ``Health``. Exceptions other than
+    ``EmptyTranscript`` propagate to ``main``, which maps them through ``EXIT_BY_ERROR``.
+    """
+    from .transcript import EmptyTranscript
+
+    try:
+        h = call()
+    except EmptyTranscript as e:
+        print(json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False))
+        return EXIT_FAIL
+    status = "ok" if h.ok else "unhealthy"
+    print(json.dumps({"status": status, "health": dataclasses.asdict(h)}, ensure_ascii=False))
+    return EXIT_OK if h.ok else EXIT_FAIL
+
+
+def _cmd_acquire_import(args) -> int:
+    from pathlib import Path
+
+    from .acquire.importer import import_transcript
+
+    return _run_acquire(lambda: import_transcript(Path(args.file), Path(args.unit), args.duration, args.force))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The only place subcommands are registered. Builds a fresh parser on every call."""
     parser = argparse.ArgumentParser(
@@ -97,7 +123,21 @@ def build_parser() -> argparse.ArgumentParser:
     set_.set_defaults(func=_cmd_profile_set)
 
     _stub(sub, "doctor")
-    _stub(sub, "acquire")
+    acquire = sub.add_parser("acquire", help="get a lecture's transcript into a unit folder")
+    acquire_sub = acquire.add_subparsers(dest="acquire_command")
+
+    def _acquire_usage(args) -> int:
+        # A bare "acquire" names no source: show the group's usage, exit as a usage error.
+        acquire.print_usage(sys.stderr)
+        return EXIT_USAGE
+
+    acquire.set_defaults(func=_acquire_usage)
+    imp = acquire_sub.add_parser("import", help="import a transcript file (.srt, .vtt, .json, .txt)")
+    imp.add_argument("--file", required=True, help="the transcript file")
+    imp.add_argument("--unit", required=True, help="the unit folder")
+    imp.add_argument("--duration", type=float, default=None, help="the lecture length in seconds, if known")
+    imp.add_argument("--force", action="store_true", help="replace an existing transcript")
+    imp.set_defaults(func=_cmd_acquire_import)
     _stub(sub, "transcribe")
     _stub(sub, "slides")
     _stub(sub, "items")
