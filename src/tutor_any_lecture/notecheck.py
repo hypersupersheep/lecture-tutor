@@ -11,7 +11,7 @@ import math
 import re
 
 from .checks import CheckResult
-from .citations import parse
+from .citations import Citation, parse
 from .textstats import fenced_lines, is_cjk_language, strip_code, units
 
 THRESHOLDS = {
@@ -194,6 +194,37 @@ def _blockquotes(lines: list[str]) -> list[tuple[int, int]]:
             i = j
         else:
             i += 1
+    return out
+
+
+def _without_citations(text: str) -> str:
+    for c in parse(text):
+        text = text.replace(c.raw, " ")
+    return " ".join(text.split())
+
+
+def cited_quotes(md: str) -> list[tuple[str, list[Citation]]]:
+    """The quotes of the lecture prose that carry a citation, each with the citations that cover it.
+
+    Read as check_note reads them: code and the marker sections are left out. A blockquote
+    that is not a callout is cited inside or on its next non-empty line; an inline quote of
+    15 or more characters is cited by its paragraph. Citation groups are removed from the
+    quote text. Blockquotes come first, then inline quotes, each in document order.
+    """
+    p_lines = strip_marker_sections(strip_code(md)).split("\n")
+    out: list[tuple[str, list[Citation]]] = []
+    for a, b in _blockquotes(p_lines):
+        if CALLOUT_START_RE.match(p_lines[a]):
+            continue
+        after = next((x for x in p_lines[b:] if x.strip()), "")
+        cits = parse("\n".join(p_lines[a:b])) or parse(after)
+        if cits:
+            text = " ".join(BLOCKQUOTE_PREFIX_RE.sub("", line) for line in p_lines[a:b])
+            out.append((_without_citations(text), cits))
+    for para in _paragraphs(p_lines):
+        cits = parse("\n".join(para))
+        if cits:
+            out.extend((_without_citations(q), cits) for line in para for q in _inline_quotes(line))
     return out
 
 

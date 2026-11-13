@@ -235,3 +235,113 @@ def test_escaped_dollar_is_currency(tmp_path):
     # Unescaped, "$5 a month, or $" would read as inline math and vanish.
     append_to_note(u, "\n\nThe fee is \\$5 a month, or \\$x for the year (slide 1).\n")
     assert "in the note, not in the sources: $5" in entry(run_verify(u), "numbers")["details"]
+
+
+# ---------------------------------------------------------------- quote_source (Task 23)
+
+
+def quote_source_details(r):
+    """Local helper: the quote_source details folded into the citations entry, prefix removed."""
+    return [d[len("quote_source: "):] for d in entry(r, "citations")["details"] if d.startswith("quote_source: ")]
+
+
+def add_segment(u, start, end, text):
+    """Local helper: append one segment to the unit's transcript.json."""
+    path = UnitPaths(u).transcript
+    data = _read_json(path)
+    data["segments"].append({"start": start, "end": end, "text": text})
+    _write_json(path, data)
+
+
+def test_invented_blockquote_fails_quote_source(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(u, "\n\n> The bank pays a bonus rate to every customer who never withdraws. (slide 1, 1:15)\n")
+    c = entry(run_verify(u), "citations")
+    assert c["status"] == "FAIL"
+    assert quote_source_details(run_verify(u)) == [
+        "quote 'The bank pays a bonus rate to every cust…' cited (slide 1, 1:15) "
+        "is not in the transcript or the slides"
+    ]
+
+
+def test_invented_inline_quote_fails_quote_source(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(u, '\n\nThe lecturer warned that "banks always round the rate down" (slide 2, 2:40).\n')
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "FAIL"
+    assert quote_source_details(r) == [
+        "quote 'banks always round the rate down' cited (slide 2, 2:40) is not in the transcript or the slides"
+    ]
+
+
+def test_quote_far_from_cited_time_warns(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 600.0, 630.0, "Some banks print the effective annual rate next to every advertised APR.")
+    append_to_note(u, '\n\nAs the lecturer put it, "some banks print the effective annual rate" (0:30).\n')
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "WARN"
+    assert quote_source_details(r) == [
+        "quote 'some banks print the effective annual ra…' is not at (0:30); found at 10:00"
+    ]
+
+
+def test_quote_on_another_slide_warns(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(u, '\n\nThe deck ends on "Continuous compounding: the limit as the period shrinks to zero" (slide 1).\n')
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "WARN"
+    assert quote_source_details(r) == [
+        "quote 'Continuous compounding: the limit as the…' is not at (slide 1); found on slide 3"
+    ]
+
+
+def test_quote_with_ellipsis_and_brackets_passes(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 178.0, 180.0, "Remember: the balance on your statement already has interest included.")
+    append_to_note(
+        u,
+        '\n\nThe statement shows "the balance … [that is] interest included" (2:59).\n\n'
+        "> With compound interest … the interest you earned [it is] added to the balance (1:15)\n",
+    )
+    r = run_verify(u)
+    assert entry(r, "citations") == {"name": "citations", "status": "PASS", "details": []}
+
+
+def test_quote_punctuation_and_case_do_not_matter(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(
+        u,
+        "\n\n> WITH COMPOUND INTEREST — the interest you earned is added to the balance; "
+        "and next period, it earns interest too! (1:15)\n\n"
+        "The slide reads “Simple — interest on the DEPOSIT only.” (slide 1).\n",
+    )
+    r = run_verify(u)
+    assert entry(r, "citations") == {"name": "citations", "status": "PASS", "details": []}
+
+
+def test_cjk_quote_ignores_spaces(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 170.0, 178.0, "复利 就是 利息 也会 生出 利息。")
+    append_to_note(u, "\n\n> 复利就是利息也会生出利息 (2:55)\n")
+    assert quote_source_details(run_verify(u)) == []
+    append_to_note(u, "\n\n> 单利就是本金永远不会变多 (2:55)\n")
+    assert quote_source_details(run_verify(u)) == [
+        "quote '单利就是本金永远不会变多' cited (2:55) is not in the transcript or the slides"
+    ]
+
+
+def test_time_only_quote_without_transcript_has_no_quote_source(tmp_path):
+    u = copy_fixture("slides_only", tmp_path)
+    append_to_note(u, "\n\n> The balance is updated once a month by the bank. (0:30)\n")
+    c = entry(run_verify(u), "citations")
+    assert c["status"] == "FAIL" and quote_source_details(run_verify(u)) == []
+
+
+def test_bundled_sample_passes_quote_source(tmp_path):
+    from tutor_any_lecture.selftest import run_selftest
+
+    unit = tmp_path / "sample"
+    assert run_selftest(unit)["ok"] is True
+    r = _read_json(UnitPaths(unit).verify)
+    assert quote_source_details(r) == []
+    assert entry(r, "citations")["status"] in ("PASS", "WARN")

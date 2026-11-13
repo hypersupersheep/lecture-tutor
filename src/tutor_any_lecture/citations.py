@@ -93,7 +93,8 @@ def parse(md: str) -> list[Citation]:
     return out
 
 
-def _fmt_duration(d: float) -> str:
+def format_seconds(d: float) -> str:
+    """Seconds as m:ss, or h:mm:ss from one hour on."""
     total = int(d)
     h, rest = divmod(total, 3600)
     m, s = divmod(rest, 60)
@@ -106,7 +107,7 @@ def _as_written(raw: str, seconds: float) -> str:
     for tok in TIME_RE.findall(raw):
         if _seconds(tok) == seconds:
             return tok
-    return _fmt_duration(seconds)
+    return format_seconds(seconds)
 
 
 def resolve(cits: list[Citation], max_slide: int | None, duration: float | None) -> list[str]:
@@ -122,5 +123,5 @@ def resolve(cits: list[Citation], max_slide: int | None, duration: float | None)
         elif duration is not None:
             for t in (c.start, c.end):
                 if t is not None and t > duration + 2:
-                    problems.append(f"{_as_written(c.raw, t)} > duration {_fmt_duration(duration)}")
+                    problems.append(f"{_as_written(c.raw, t)} > duration {format_seconds(duration)}")
     return problems

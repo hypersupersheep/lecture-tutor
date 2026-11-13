@@ -9,21 +9,23 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+from bisect import bisect_right
 from importlib import resources
 from pathlib import Path
 
 from .cards import load_cards, validate_cards
 from .checks import CheckResult
-from .citations import parse, resolve
+from .citations import format_seconds, parse, resolve
 from .conceptmap import load_map, validate_map
 from .items import load_items, validate_items
-from .notecheck import check_note, marker_sections
+from .notecheck import check_note, cited_quotes, marker_sections
 from .plan import load_plan
 from .slides import load_pages, max_label
 from .source import SourceInfo
 
 # verify removes code exactly as check_note and units() do.
-from .textstats import BRACKET_MATH_RE, DISPLAY_MATH_RE, INLINE_MATH_RE, PAREN_MATH_RE, strip_code
+from .textstats import BRACKET_MATH_RE, CJK_RE, DISPLAY_MATH_RE, INLINE_MATH_RE, PAREN_MATH_RE, strip_code
 from .transcript import Transcript
 from .unit import UnitPaths
 
@@ -48,6 +50,15 @@ URL_RE = re.compile(r"<https?://[^>\s]*>|https?://\S+")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>\n]*>")
 LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ɏḀ-ỿ]+")
+
+# quote_source: editorial marks split a quote; a cited time looks this far either side.
+EDITORIAL_RE = re.compile(r"…|\.\.\.|\[[^\]\n]*\]")
+NOT_LETTER_OR_DIGIT_RE = re.compile(r"[\W_]+")
+CJK_SPACE_RE = re.compile(rf" (?={CJK_RE.pattern})|(?<={CJK_RE.pattern}) ")
+QUOTE_WINDOW_S = 60
+QUOTE_MIN_WORDS = 3
+QUOTE_MIN_CJK_CHARS = 6
+QUOTE_SHOWN_CHARS = 40
 
 # numbers: a quantity with a unit, or a currency sign and the first digit after it.
 NUMBER_RE = re.compile(
@@ -113,7 +124,7 @@ def _error_detail(file_name: str, e: Exception) -> str:
 # ---------------------------------------------------------------- checks
 
 
-def _check_citations(cits, pages, duration, transcript, slides_only) -> dict:
+def _citation_problems(cits, pages, duration, transcript, slides_only) -> dict:
     details = resolve(cits, max_label(pages) if pages else None, duration)
     if transcript is None:
         if slides_only:
@@ -125,6 +136,116 @@ def _check_citations(cits, pages, duration, transcript, slides_only) -> dict:
     if duration is None and any(c.kind == "time" for c in cits):
         return _entry("citations", "WARN", [DURATION_UNKNOWN])
     return _entry("citations", "PASS", [])
+
+
+def _check_citations(cits, pages, duration, transcript, slides_only, md: str) -> dict:
+    """The citation problems, then the quote_source sub-result folded in as "quote_source: <detail>"."""
+    entry = _citation_problems(cits, pages, duration, transcript, slides_only)
+    quotes = _check_quote_source(md, transcript, pages)
+    if quotes.status != "PASS":
+        folded = _fold("citations", [quotes])
+        entry["status"] = max(entry["status"], folded["status"], key=SEVERITY.__getitem__)
+        entry["details"] += folded["details"]
+    return entry
+
+
+# ---------------------------------------------------------------- quote_source
+
+
+def _quote_norm(text: str) -> str:
+    """NFKC, casefold, every run of non-letters-or-digits one space, stripped; no space next to CJK."""
+    text = unicodedata.normalize("NFKC", text).casefold()
+    text = NOT_LETTER_OR_DIGIT_RE.sub(" ", text).strip()
+    return CJK_SPACE_RE.sub("", text)
+
+
+def _joined(texts) -> tuple[str, list[int]]:
+    """``_quote_norm`` of the texts joined by spaces, and where each text starts in it.
+
+    Built piece by piece, so the result equals ``_quote_norm(" ".join(texts))``.
+    """
+    out = ""
+    starts: list[int] = []
+    for t in texts:
+        n = _quote_norm(t)
+        if out and n and not (CJK_RE.match(out[-1]) or CJK_RE.match(n[0])):
+            out += " "
+        starts.append(len(out))
+        out += n
+    return out, starts
+
+
+def _quote_parts(quote: str) -> list[str]:
+    """The normalised parts between editorial marks, without the parts too short to check."""
+    parts = []
+    for raw in EDITORIAL_RE.split(quote):
+        part = _quote_norm(raw)
+        if CJK_RE.search(part):
+            long_enough = len(part.replace(" ", "")) >= QUOTE_MIN_CJK_CHARS
+        else:
+            long_enough = len(part.split()) >= QUOTE_MIN_WORDS
+        if long_enough:
+            parts.append(part)
+    return parts
+
+
+class _QuoteSources:
+    """The transcript and the slides, normalised once for every quote of a note."""
+
+    def __init__(self, transcript, pages) -> None:
+        self.segments = transcript.segments if transcript is not None else None
+        self.pages = pages
+        if self.segments is not None:
+            self.all_text, self.starts = _joined(s.text for s in self.segments)
+        else:
+            self.all_text, self.starts = "", []
+        self.slide_texts = [(_slide_number(p), _quote_norm(p.text)) for p in pages]
+
+    def cited(self, c) -> str | None:
+        """The text at one citation; None for a time when the unit has no transcript."""
+        if c.kind == "slide":
+            lo, hi = _span(c.start, c.end)
+            return _joined(p.text for p in self.pages if lo <= _slide_number(p) <= hi)[0]
+        if self.segments is None:
+            return None
+        lo = c.start - QUOTE_WINDOW_S
+        hi = (c.end if c.end is not None else c.start) + QUOTE_WINDOW_S
+        return _joined(s.text for s in self.segments if s.start <= hi and s.end >= lo)[0]
+
+    def find(self, part: str) -> str | None:
+        """Where ``part`` is: "at m:ss" in the transcript, else "on slide N", else None."""
+        pos = self.all_text.find(part)
+        if pos >= 0:
+            return f"at {format_seconds(self.segments[bisect_right(self.starts, pos) - 1].start)}"
+        for n, text in self.slide_texts:
+            if part in text:
+                return f"on slide {n}"
+        return None
+
+
+def _check_quote_source(md: str, transcript, pages) -> CheckResult:
+    """Every cited quote is found at the place it cites (WARN when only elsewhere, FAIL when nowhere)."""
+    sources = _QuoteSources(transcript, pages)
+    details: list[str] = []
+    worst = "PASS"
+    for quote, cits in cited_quotes(md):
+        parts = _quote_parts(quote)
+        places = [t for t in (sources.cited(c) for c in cits) if t is not None]
+        if not parts or not places:
+            continue  # nothing to check, or only times in a unit without a transcript
+        missing = [part for part in parts if not any(part in place for place in places)]
+        if not missing:
+            continue
+        shown = quote if len(quote) <= QUOTE_SHOWN_CHARS else quote[:QUOTE_SHOWN_CHARS] + "…"
+        cited = ", ".join(_dedupe([c.raw for c in cits]))
+        found = [sources.find(part) for part in missing]
+        if all(found):
+            details.append(f"quote '{shown}' is not at {cited}; found {found[0]}")
+            worst = max(worst, "WARN", key=SEVERITY.__getitem__)
+        else:
+            details.append(f"quote '{shown}' cited {cited} is not in the transcript or the slides")
+            worst = "FAIL"
+    return CheckResult("quote_source", worst, details)
 
 
 def _span(start, end) -> tuple[int, int]:
@@ -310,7 +431,7 @@ def run_verify(unit: Path) -> dict:
     sources = "\n".join([transcript.text() if transcript is not None else ""] + [pg.text for pg in pages])
 
     checks = [
-        _check_citations(cits, pages, duration, transcript, slides_only),
+        _check_citations(cits, pages, duration, transcript, slides_only, md),
         _check_coverage(cits, pages, md),
         _check_terms(note_text, sources),
         _check_numbers(note_text, sources),
