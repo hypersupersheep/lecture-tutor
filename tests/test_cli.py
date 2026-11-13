@@ -1,7 +1,9 @@
 import argparse
 import json
 import re
+import shutil
 import signal
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -260,16 +262,99 @@ def test_profile_show_prints_an_absolute_workspace(tmp_cfg, tmp_path, monkeypatc
     assert "workspace: ~/ws" in (config_dir() / "profile.yaml").read_text(encoding="utf-8")
 
 
-def test_stdout_json_is_ascii(tmp_path, capsys):
+@pytest.mark.parametrize("platform, escaped", [("win32", True), ("linux", False), ("darwin", False)])
+def test_stdout_json_is_ascii_only_on_windows(tmp_path, monkeypatch, capsys, platform, escaped):
     folder = tmp_path / "课程 资料"
     folder.mkdir()
     (folder / "a.pdf").write_bytes(b"")
+    monkeypatch.setattr(sys, "platform", platform)
     assert main(["acquire", "route", "--folder", str(folder), "--unit", str(tmp_path / "unit")]) == 0
     out = capsys.readouterr().out
-    assert out.isascii() and len(out.splitlines()) == 1
+    assert out.isascii() is escaped and len(out.splitlines()) == 1
+    assert ("课程 资料" in out) is not escaped
     plan = json.loads(out)
     assert "课程 资料" in plan["steps"][0]["argv"][3]
     assert plan["files"]["slides"] == [str(folder.resolve() / "a.pdf")]
+
+
+def test_stdout_json_keeps_line_separators_escaped(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "platform", "linux")
+    cli._print_json({"text": "a\u2028b\u2029c\x85d 第"})
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and len(out.splitlines()) == 1 and "第" in out
+    assert json.loads(out) == {"text": "a\u2028b\u2029c\x85d 第"}
+
+
+# ---- one way to report a written file (Task 29, L12) --------------------------
+
+
+def ok_unit(tmp_path):
+    """Local helper: a copy of the ok fixture unit."""
+    from conftest import fx
+
+    unit = tmp_path / "课程 资料" / "第1周"
+    shutil.copytree(fx("units", "ok"), unit)
+    return unit
+
+
+def setup_cards_export(tmp_path):
+    return ["cards", "export", "--unit", str(ok_unit(tmp_path))]
+
+
+def setup_cards_add_misses(tmp_path):
+    return ["cards", "add-misses", "--unit", str(ok_unit(tmp_path)), "--workspace", str(tmp_path / "ws")]
+
+
+def setup_map_mermaid(tmp_path):
+    return ["map", "mermaid", "--unit", str(ok_unit(tmp_path))]
+
+
+def setup_items_assign(tmp_path):
+    return ["items", "assign", "--unit", str(ok_unit(tmp_path)), "--force"]
+
+
+def setup_slides_pdf(tmp_path):
+    from fixtures.make_pdf import make_pdf
+
+    pdf = make_pdf(tmp_path, ["Compound interest\n1/2", "Discounting\n2/2"])
+    return ["slides", "--pdf", str(pdf), "--unit", str(tmp_path / "unit")]
+
+
+def setup_slides_suspects(tmp_path):
+    return ["slides", "suspects", "--unit", str(ok_unit(tmp_path))]
+
+
+def setup_progress_render(tmp_path):
+    from tutor_any_lecture.progress import Attempt, log_attempt
+
+    ws = tmp_path / "ws"
+    log_attempt(Attempt(ts="2026-11-20T10:00:00+00:00", course="C", unit="u1", item_id="c1-A", variant="A",
+                        concept="c1", phase="pre", score=0, confidence=2, citation="(0:30)", exposure="none"), ws)
+    return ["progress", "render", "--course", "C", "--workspace", str(ws)]
+
+
+WRITERS = {
+    "cards-export": setup_cards_export,
+    "cards-add-misses": setup_cards_add_misses,
+    "map-mermaid": setup_map_mermaid,
+    "items-assign": setup_items_assign,
+    "slides-pdf": setup_slides_pdf,
+    "slides-suspects": setup_slides_suspects,
+    "progress-render": setup_progress_render,
+}
+
+
+@pytest.mark.parametrize("name", sorted(WRITERS))
+def test_commands_that_write_report_json_paths(tmp_path, capsys, name):
+    argv = WRITERS[name](tmp_path)
+    capsys.readouterr()
+    assert main(argv) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    out = json.loads(lines[0])
+    assert isinstance(out, dict) and ("path" in out) != ("paths" in out)
+    paths = [out["path"]] if "path" in out else out["paths"]
+    assert paths and all(Path(p).is_absolute() and Path(p).is_file() for p in paths)
 
 
 @pytest.mark.parametrize("command", [

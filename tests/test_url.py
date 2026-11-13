@@ -710,3 +710,73 @@ def test_cleaner_keeps_the_recording_id_parameters():
     kept = url_without_tokens("https://x.example/p?token=S&entry_id=0_ab&vid=7&mid=9&entryid=e&id=3&sig=Q")
     assert kept == "https://x.example/p?entry_id=0_ab&vid=7&mid=9&entryid=e&id=3"
     assert url_without_tokens("https://u:pw@x.example/p?auth=S#t=5") == "https://x.example/p"
+
+
+# ---- naming a unit before acquiring it (Task 29, L2) -------------------------
+
+
+def tree(folder):
+    """Local helper: every path under ``folder``, relative, sorted."""
+    return sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
+
+
+def test_cli_url_info_prints_title_and_writes_nothing(tmp_cfg, monkeypatch, tmp_path, capsys):
+    meta = info(subs={"fr": [orig()], "en": [orig()]}, auto={"en-orig": [orig()], "de": [tl("de")]}, lang="en")
+    meta["uploader"] = "Synthetic Channel"
+    fake = _install(monkeypatch, meta, {("cc", "en"): GOOD_VTT})
+    monkeypatch.chdir(tmp_path)
+    before = tree(tmp_path)
+    assert main(["acquire", "url", "--url", "https://y/x", "--info"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {
+        "status": "ok",
+        "title": "Synthetic lecture",
+        "duration": 600.0,
+        "uploader": "Synthetic Channel",
+        "manual_captions": ["en", "fr"],
+        "automatic_captions": True,
+    }
+    assert tree(tmp_path) == before
+    assert fake.caption_requests == [] and fake.downloads == [] and fake.folders == []
+    assert all(not (BANNED & set(o)) for o in fake.all_opts)
+
+
+def test_cli_url_info_without_captions_or_metadata(tmp_cfg, monkeypatch, capsys):
+    _install(monkeypatch, {"id": "vid", "extractor_key": "Youtube"})
+    assert main(["acquire", "url", "--url", "https://y/x", "--info"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "ok", "title": None, "duration": None, "uploader": None,
+        "manual_captions": [], "automatic_captions": False,
+    }
+
+
+def test_cli_url_info_failures_are_error_json(tmp_cfg, monkeypatch, capsys):
+    _install(monkeypatch, info(), info_error=yt_dlp.utils.DownloadError("ERROR: Video unavailable"))
+    assert main(["acquire", "url", "--url", "https://y/x", "--info"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"status": "error", "message": "could not read the video page: Video unavailable"}
+    _install(monkeypatch, {"_type": "playlist", "entries": []})
+    assert main(["acquire", "url", "--url", "https://y/x", "--info"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+
+
+def test_cli_url_needs_unit_or_info(tmp_cfg, fake_ydl, capsys):
+    assert main(["acquire", "url", "--url", "https://y/x"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "--unit" in captured.err
+    assert fake_ydl.all_opts == []
+
+
+def test_cli_url_result_carries_title_and_acquisition(tmp_cfg, monkeypatch, tmp_path, capsys):
+    unit = tmp_path / "课程 资料" / "第1周"
+    _install(monkeypatch, info(subs={"en": [orig()]}, lang="en"), {("cc", "en"): GOOD_VTT})
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["status"], out["title"], out["acquisition"]) == ("ok", "Synthetic lecture", "cc")
+    assert out["health"]["ok"] is True
+    # An unhealthy automatic track is reported with its title and kind as well.
+    _install(monkeypatch, info(auto={"en-orig": [orig()]}, lang="en"), {("auto", "en-orig"): SHORT_VTT})
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit), "--force"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert (out["status"], out["title"], out["acquisition"]) == ("unhealthy", "Synthetic lecture", "auto")

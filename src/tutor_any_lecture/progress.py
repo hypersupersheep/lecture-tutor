@@ -95,15 +95,33 @@ def load_attempts(course: str, workspace: Path) -> list[Attempt]:
     ]
 
 
+def _stamp(day: date | None) -> str:
+    """The local time now, with its UTC offset, moved to ``day`` when one is given."""
+    now = datetime.now()
+    # A naive local time made aware by astimezone() gets the offset in force on that day.
+    moment = datetime.combine(day if day is not None else now.date(), now.time())
+    return moment.astimezone().isoformat(timespec="seconds")
+
+
 def log_from_unit(
-    unit: Path, item_id: str, phase: str, score: float, confidence: int, exposure: str, workspace: Path
+    unit: Path,
+    item_id: str,
+    phase: str,
+    score: float,
+    confidence: int,
+    exposure: str,
+    workspace: Path,
+    day: date | None = None,
 ) -> Attempt:
-    """Log one attempt at ``item_id``; course, unit, variant, concept and citation come from the unit's files."""
+    """Log one attempt at ``item_id``; course, unit, variant, concept and citation come from the unit's files.
+
+    ``day`` is the day the answer was given (default: today), for an answer logged later.
+    """
     paths = UnitPaths(unit)
     plan = load_plan(paths.plan)
     item = find_item(load_items(paths.items), item_id)
     a = Attempt(
-        ts=datetime.now().astimezone().isoformat(timespec="seconds"),
+        ts=_stamp(day),
         course=plan.course,
         unit=plan.unit,
         item_id=item.id,

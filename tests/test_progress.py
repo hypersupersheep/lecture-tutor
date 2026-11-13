@@ -268,6 +268,32 @@ def test_cli_log_unknown_item_exits_2(tmp_path, capsys):
     assert load_attempts("C", ws) == []
 
 
+def test_cli_progress_log_takes_a_date(tmp_path, capsys):
+    u = unit_dir(tmp_path)
+    ws = tmp_path / "ws"
+    argv = ["progress", "log", "--unit", str(u), "--item", "c1-C", "--phase", "d7",
+            "--score", "1", "--confidence", "3", "--workspace", str(ws)]
+    assert main([*argv, "--date", "2026-11-27"]) == 0
+    (a,) = load_attempts("C", ws)
+    stamp = datetime.fromisoformat(a.ts)
+    assert stamp.date() == date(2026, 11, 27) and stamp.utcoffset() is not None
+    assert json.loads(capsys.readouterr().out)["ts"] == a.ts
+    # without --date the attempt is stamped today
+    assert main(argv) == 0
+    assert datetime.fromisoformat(load_attempts("C", ws)[1].ts).date() == date.today()
+    for bad in ("2026-13-01", "27/11/2026", "20261127", "tomorrow"):
+        with pytest.raises(SystemExit) as e:
+            main([*argv, "--date", bad])
+        assert e.value.code == 2
+    assert len(load_attempts("C", ws)) == 2
+
+
+def test_cli_progress_due_rejects_a_bad_date(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        main(["progress", "due", "--course", "C", "--date", "2026-02-30", "--workspace", str(tmp_path)])
+    assert e.value.code == 2
+
+
 def test_cli_log_takes_no_course(tmp_path):
     u = unit_dir(tmp_path)
     with pytest.raises(SystemExit) as e:
@@ -300,7 +326,7 @@ def test_cli_render_writes_page(tmp_path, capsys):
     assert main(["progress", "render", "--course", "C", "--workspace", str(tmp_path)]) == 0
     page = tmp_path / "progress" / "C.md"
     assert page.read_text(encoding="utf-8").splitlines()[0] == "# Progress — C"
-    assert capsys.readouterr().out.strip() == str(page)
+    assert json.loads(capsys.readouterr().out) == {"path": str(page)}
 
 
 # ---- unsafe names and malformed files (Task 21) -----------------------------

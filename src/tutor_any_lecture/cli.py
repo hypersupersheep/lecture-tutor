@@ -15,6 +15,7 @@ import json
 import math
 import signal
 import sys
+import re
 import threading
 from datetime import date
 from pathlib import Path
@@ -60,14 +61,23 @@ def _stub(sub, name) -> None:
     p.set_defaults(func=_not_implemented)
 
 
+# Characters that str.splitlines() treats as line ends and json.dumps(ensure_ascii=False)
+# leaves raw; escaped, so the printed object stays on one line.
+_LINE_SEPARATORS = {"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
+
+
 def _print_json(obj) -> None:
     """Print ``obj`` as one JSON line on stdout.
 
-    ASCII only (``ensure_ascii=True``): every non-ASCII character becomes a ``\\u`` escape,
-    so a console with any code page shows the line unharmed and ``json.loads`` gives the
-    original text back. JSON files keep ``ensure_ascii=False``.
+    On Windows every non-ASCII character becomes a ``\\u`` escape, so a console with any
+    code page shows the line unharmed. Elsewhere the console is UTF-8 (``main`` sets
+    stdout to it) and text is printed as it is, so an agent can copy a quiz prompt word
+    for word. Either way ``json.loads`` gives the original text back.
     """
-    print(json.dumps(obj, ensure_ascii=True))
+    text = json.dumps(obj, ensure_ascii=sys.platform == "win32")
+    for char, escape in _LINE_SEPARATORS.items():
+        text = text.replace(char, escape)
+    print(text)
 
 
 def _path(value: str) -> Path:
@@ -131,11 +141,12 @@ def _cmd_doctor(args) -> int:
     return EXIT_OK if report["ready"] else EXIT_ACTION
 
 
-def _run_acquire(call) -> int:
+def _run_acquire(call, extra=None) -> int:
     """Run one acquisition and print its one-line JSON result.
 
     ``call`` takes no arguments and returns a ``Health``; a command that needs the profile
-    loads it inside ``call``. A ``ValueError`` (an empty transcript, malformed or non-UTF-8
+    loads it inside ``call``. ``extra``, when given, takes no arguments and returns more
+    keys for the ``ok`` or ``unhealthy`` object. A ``ValueError`` (an empty transcript, malformed or non-UTF-8
     input), an ``AcquireError`` (a failed tool or ASR backend), a ``ProfileError`` (a
     malformed profile.yaml) or an ``OSError`` (a missing or unreadable input, a folder
     given as a file) becomes ``{"status": "error", ...}`` with exit 1. ``FileExistsError``
@@ -153,7 +164,7 @@ def _run_acquire(call) -> int:
         _print_json({"status": "error", "message": str(e)})
         return EXIT_FAIL
     status = "ok" if h.ok else "unhealthy"
-    _print_json({"status": status, "health": dataclasses.asdict(h)})
+    _print_json({"status": status, "health": dataclasses.asdict(h), **(extra() if extra else {})})
     return EXIT_OK if h.ok else EXIT_FAIL
 
 
@@ -183,14 +194,35 @@ def _cmd_acquire_local(args) -> int:
 
 
 def _cmd_acquire_url(args) -> int:
-    from .acquire.url import NeedsUserFile, acquire_url
+    from .acquire.url import NeedsUserFile, acquire_url, url_info
     from .profile import ConsentRequired, load_profile
+    from .source import SourceInfo
+    from .transcript import AcquireError
+    from .unit import UnitPaths
+
+    if args.info:
+        # Only the page's metadata: no profile, no unit, nothing written.
+        try:
+            meta = url_info(args.url)
+        except (AcquireError, OSError) as e:
+            _print_json({"status": "error", "message": str(e)})
+            return EXIT_FAIL
+        _print_json({"status": "ok", **meta})
+        return EXIT_OK
+    if args.unit is None:
+        print("acquire url: --unit is required (or pass --info to read only the title)", file=sys.stderr)
+        return EXIT_USAGE
+
+    def named():
+        source = SourceInfo.read(UnitPaths(args.unit).source)
+        return {"title": source.title, "acquisition": source.acquisition}
 
     try:
         return _run_acquire(
             lambda: acquire_url(
                 args.url, Path(args.unit), load_profile(), args.force, budget_minutes=args.budget_minutes
-            )
+            ),
+            named,
         )
     except NeedsUserFile as e:
         _print_json({"status": "needs_user_file", "message": str(e)})
@@ -238,10 +270,11 @@ def _cmd_slides(args) -> int:
         return EXIT_USAGE
 
     from .slides import extract_pdf
+    from .unit import UnitPaths
 
     pages = extract_pdf(Path(args.pdf), Path(args.unit), images=args.images)
     labelled = sum(1 for p in pages if p.label is not None)
-    _print_json({"status": "ok", "pages": len(pages), "labelled": labelled})
+    _print_json({"status": "ok", "pages": len(pages), "labelled": labelled, "path": str(UnitPaths(args.unit).pages)})
     return EXIT_OK
 
 
@@ -253,8 +286,10 @@ def _cmd_slides_suspects(args) -> int:
 
     from .suspects import write_suspects
 
+    from .unit import UnitPaths
+
     found = write_suspects(Path(args.unit))
-    _print_json({"status": "ok", "suspects": len(found)})
+    _print_json({"status": "ok", "suspects": len(found), "path": str(UnitPaths(args.unit).suspects)})
     return EXIT_OK
 
 
@@ -274,13 +309,14 @@ def _cmd_items_validate(args) -> int:
 
 def _cmd_items_assign(args) -> int:
     from .items import assign_unit
+    from .unit import UnitPaths
 
     try:
         assignment = assign_unit(Path(args.unit), args.force)
     except ValueError as e:
         print(_one_line(e), file=sys.stderr)
         return EXIT_FAIL
-    _print_json(assignment)
+    _print_json({**assignment, "path": str(UnitPaths(args.unit).assignment)})
     return EXIT_OK
 
 
@@ -346,7 +382,7 @@ def _cmd_progress_log(args) -> int:
     ws = Path(args.workspace) if args.workspace is not None else config.workspace()
     try:
         a = progress.log_from_unit(
-            Path(args.unit), args.item, args.phase, args.score, args.confidence, args.exposure, ws
+            Path(args.unit), args.item, args.phase, args.score, args.confidence, args.exposure, ws, day=args.date
         )
     except KeyError:
         print(f"unknown item id: {args.item}", file=sys.stderr)
@@ -369,7 +405,7 @@ def _cmd_progress_render(args) -> int:
 
     ws = Path(args.workspace) if args.workspace is not None else config.workspace()
     path = progress.render_progress(args.course, ws, date.today())
-    print(str(path))
+    _print_json({"path": str(path)})
     return EXIT_OK
 
 
@@ -394,7 +430,7 @@ def _cmd_map_mermaid(args) -> int:
     except conceptmap.UnknownView as e:
         print(_one_line(e), file=sys.stderr)
         return EXIT_USAGE
-    print(str(path))
+    _print_json({"path": str(path)})
     return EXIT_OK
 
 
@@ -424,6 +460,19 @@ def _cmd_selftest(args) -> int:
     if args.keep is not None:
         print(f"unit folder: {Path(args.keep)}")
     return EXIT_OK if result["ok"] else EXIT_FAIL
+
+
+_DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _day(value: str) -> date:
+    """argparse type for --date: a calendar day written YYYY-MM-DD."""
+    try:
+        if not _DAY_RE.fullmatch(value):
+            raise ValueError
+        return date.fromisoformat(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a date in the form YYYY-MM-DD: {value!r}") from None
 
 
 def _positive_number(value: str) -> float:
@@ -495,7 +544,9 @@ def build_parser() -> argparse.ArgumentParser:
     loc.set_defaults(func=_cmd_acquire_local)
     url = acquire_sub.add_parser("url", help="get a public video's captions, or (with consent) its audio")
     url.add_argument("--url", required=True, help="the video URL")
-    url.add_argument("--unit", type=_path, required=True, help="the unit folder")
+    url.add_argument("--unit", type=_path, default=None, help="the unit folder (required unless --info)")
+    url.add_argument("--info", action="store_true",
+                     help="print the title, length and caption tracks as JSON; write nothing")
     url.add_argument("--force", action="store_true", help="replace an existing transcript")
     url.add_argument("--budget-minutes", type=_positive_number, default=None,
                      help="stop ASR after this many minutes (default: max(30, 2 x the video length))")
@@ -560,11 +611,13 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--confidence", required=True, type=int, choices=[1, 2, 3], help="the confidence")
     pl.add_argument("--exposure", default="unknown", choices=["none", "attended", "watched", "unknown"],
                     help="how the lecture was seen (default: unknown)")
+    pl.add_argument("--date", type=_day, default=None,
+                    help="the day the answer was given, YYYY-MM-DD (default: today)")
     pl.add_argument("--workspace", type=_path, default=None, help="the workspace folder (default: the profile's)")
     pl.set_defaults(func=_cmd_progress_log)
     pd = progress_sub.add_parser("due", help="print the reviews due as JSON")
     pd.add_argument("--course", required=True, help="the course name, as in plan.json")
-    pd.add_argument("--date", type=date.fromisoformat, default=None, help="the day, YYYY-MM-DD (default: today)")
+    pd.add_argument("--date", type=_day, default=None, help="the day, YYYY-MM-DD (default: today)")
     pd.add_argument("--workspace", type=_path, default=None, help="the workspace folder (default: the profile's)")
     pd.set_defaults(func=_cmd_progress_due)
     pr = progress_sub.add_parser("render", help="write the course's progress page")

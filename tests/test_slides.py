@@ -113,7 +113,9 @@ def test_cli_slides_pdf(tmp_path, capsys):
     pdf = make_pdf(tmp_path, ["Compound interest\n1/3", "Discounting\n2/3", "Summary"])
     unit = tmp_path / "unit"
     assert main(["slides", "--pdf", str(pdf), "--unit", str(unit)]) == 0
-    assert json.loads(capsys.readouterr().out) == {"status": "ok", "pages": 3, "labelled": 2}
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "ok", "pages": 3, "labelled": 2, "path": str(UnitPaths(unit).pages),
+    }
     assert [p.label for p in load_pages(unit)] == ["1", "2", None]
 
 

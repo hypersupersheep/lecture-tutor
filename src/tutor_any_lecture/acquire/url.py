@@ -274,13 +274,8 @@ def _asr_from_audio(
 # --- the adapter -------------------------------------------------------------
 
 
-def acquire_url(
-    url: str, unit: Path, profile: Profile, force: bool, budget_minutes: float | None = None
-) -> Health:
-    paths = UnitPaths(unit)
-    # The guard comes first, before yt-dlp is touched; it keys on transcript.json only.
-    refuse_overwrite(unit, force)
-
+def _metadata(url: str) -> dict:
+    """The video page's metadata, read without downloading anything; a playlist is refused."""
     try:
         # "in_playlist": a playlist page comes back with its entries unresolved, so the
         # refusal below costs one request. Only this call; the downloads never list entries.
@@ -291,6 +286,33 @@ def acquire_url(
     # Before any caption or audio download: one unit holds one video.
     if info.get("_type") == "playlist" or "entries" in info:
         raise AcquireError("this URL is a playlist; pass the URL of one video")
+    return info
+
+
+def url_info(url: str) -> dict:
+    """What ``acquire url --info`` prints: the video's title and caption tracks. Writes nothing.
+
+    ``manual_captions`` lists the language codes of the owner's tracks (sorted);
+    ``automatic_captions`` says whether the site made any automatic track.
+    """
+    info = _metadata(url)
+    return {
+        "title": info.get("title"),
+        "duration": info.get("duration"),
+        "uploader": info.get("uploader"),
+        "manual_captions": sorted(info.get("subtitles") or {}),
+        "automatic_captions": bool(info.get("automatic_captions")),
+    }
+
+
+def acquire_url(
+    url: str, unit: Path, profile: Profile, force: bool, budget_minutes: float | None = None
+) -> Health:
+    paths = UnitPaths(unit)
+    # The guard comes first, before yt-dlp is touched; it keys on transcript.json only.
+    refuse_overwrite(unit, force)
+
+    info = _metadata(url)
     duration = info.get("duration")
     capture = is_capture_platform(url, info)
     # A capture platform's address may carry an access token: it is stored cleaned.
