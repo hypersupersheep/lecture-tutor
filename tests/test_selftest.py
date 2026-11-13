@@ -1,4 +1,5 @@
 import json
+import re
 from importlib import resources
 
 from tutor_any_lecture.cli import main
@@ -45,3 +46,35 @@ def test_selftest_refuses_nonempty_dir(tmp_path):
     assert main(["selftest", "--keep", str(tmp_path)]) == 3
     assert mine.read_text(encoding="utf-8") == "mine\n"
     assert not (tmp_path / "sources").exists()
+
+
+# ---- the sample models good work ----
+
+SAMPLE_TOPICS = ["Simple and compound interest", "Growth over n years", "Compounding frequency"]
+
+
+def sample_json(name: str):
+    sample = resources.files("tutor_any_lecture").joinpath("data", "sample")
+    return json.loads(sample.joinpath(name).read_text(encoding="utf-8"))
+
+
+def test_sample_note_has_one_h2_per_topic(tmp_path):
+    unit = tmp_path / "unit"
+    assert run_selftest(unit)["ok"] is True
+    md = (unit / "explanation.md").read_text(encoding="utf-8")
+    h2 = [line[3:].strip() for line in md.split("\n") if line.startswith("## ")]
+    assert h2 == ["Pretest", *SAMPLE_TOPICS]
+    assert [s["title"] for s in sample_json("plan.json")["sections"]] == SAMPLE_TOPICS
+
+
+def test_sample_gate_has_no_warnings(tmp_path):
+    unit = tmp_path / "unit"
+    assert run_selftest(unit)["ok"] is True
+    result = json.loads((unit / "verify.json").read_text(encoding="utf-8"))
+    assert [(c["name"], c["details"]) for c in result["checks"] if c["status"] != "PASS"] == []
+    assert result["warnings"] == 0
+
+
+def test_sample_effective_rate_has_a_numeric_variant():
+    answers = [item["answer"] for item in sample_json("items.json")["tracked"]["effective_rate"].values()]
+    assert [a for a in answers if re.search(r"\d+(?:\.\d+)?%", a)] != []

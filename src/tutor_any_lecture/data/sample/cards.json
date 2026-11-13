@@ -16,8 +16,8 @@
   {
     "id": "c03",
     "concept": "growth_formula",
-    "front": "Balance of deposit P after n years of yearly compounding at rate r?",
-    "back": "P(1 + r)^n",
+    "front": "Balance of deposit $P$ after $n$ years of yearly compounding at rate $r$?",
+    "back": "$P(1+r)^n$",
     "citation": "(slide 2, 1:12)"
   },
   {
@@ -30,8 +30,8 @@
   {
     "id": "c05",
     "concept": "effective_rate",
-    "front": "Effective annual rate of a quoted rate r paid m times a year?",
-    "back": "(1 + r/m)^m - 1",
+    "front": "Effective annual rate of a quoted rate $r$ paid $m$ times a year?",
+    "back": "$(1+r/m)^m - 1$",
     "citation": "(slide 3, 2:15–2:24)"
   },
   {
