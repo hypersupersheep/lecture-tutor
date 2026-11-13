@@ -261,3 +261,10 @@ def test_documents_name_the_new_flags_and_commands():
     assert "quote_density" in read(SKILL.parent / "references" / "profile.md")
     assert "overview-<view>.mmd" in read(SKILL.parent / "references" / "output-targets" / "markdown.md")
     assert "overview-<view>.mmd" in teaching
+
+
+def test_docs_leave_the_audio_choice_to_the_learner():
+    url_doc = read(SKILL.parent / "references" / "adapters" / "url.md")
+    assert "responsibility" in url_doc
+    for text in (url_doc, read(SKILL)):
+        assert "not downloaded" not in text and "never downloaded" not in text

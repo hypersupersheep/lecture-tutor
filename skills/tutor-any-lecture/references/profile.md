@@ -37,7 +37,7 @@ In file order, with defaults:
 | `obsidian_vault` | empty | a folder | the vault for the obsidian target |
 | `naming` | `default` | default | file naming in the vault; only default exists in M1 |
 | `downloads` | `ask` | ask, allow | ask (default) asks before every download; allow permits only downloads the platform itself offers |
-| `public_video_audio` | `off` | on, off | audio download from public video sites when no usable captions exist; consent gate below |
+| `public_video_audio` | `off` | on, off | audio download from a video's address when no usable captions exist; the learner's decision for every address; consent gate below |
 | `public_video_audio_consent` | absent (`null` in `profile show`) | a date, YYYY-MM-DD | the day the learner accepted the notice; written and removed only by the consent gate |
 | `platforms` | `{}` | a mapping | base URLs of the learner's platforms, for example `moodle: https://moodle.example.edu`; the adapters use them as `<moodle_url>` and `<panopto_url>` |
 
@@ -50,6 +50,8 @@ In file order, with defaults:
 > Turning this on lets tutor-any-lecture download the audio track of a video (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. The choice and the responsibility are yours for every address you give, a school's or a meeting platform's recordings included: check that you are allowed to download it, and follow its site's terms and copyright; use it for personal study only. The tool uses no cookies and no login, so a recording behind a sign-in is out of reach, and DRM is never circumvented.
 
 Show the notice to the learner. Only after they have read it and agreed, rerun with `--i-understand`: `tutor-any-lecture profile set public_video_audio on --i-understand`. That sets `public_video_audio: on` and records the day in profile.yaml as `public_video_audio_consent: 'YYYY-MM-DD'`. Never turn it on for the learner, and never pass `--i-understand` on your own initiative. Turning it off needs no consent and removes the recorded day.
+
+Downloading audio is off until the learner switches it on. From then on it is their decision and their responsibility for every address they give; the tool does not check a platform's terms. It never uses the learner's login, so a recording behind a sign-in is not reachable this way: there the learner uses the platform's captions, or a file they downloaded themselves.
 
 Audio is downloaded only while both hold: `public_video_audio` is on and `public_video_audio_consent` holds a date. A profile switched on by hand in profile.yaml, without the recorded consent, downloads nothing: `acquire url` prints the notice on stderr, says how to accept it, and exits 3.
 

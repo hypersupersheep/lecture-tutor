@@ -214,7 +214,7 @@ skills/tutor-any-lecture/
 - **Asks before downloading** any recording, every time, and does not work around a disabled download button.
 - **For personal study** of recordings you are entitled to watch. Don't redistribute recordings, transcripts or notes made from copyrighted lectures. The showcase in this repo contains generated diagrams and short excerpts only, with lecturer quotes redacted.
 
-**Public-video audio (off by default).** The setting is `public_video_audio`. Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded.
+**Video audio (off by default).** The setting is `public_video_audio`. Turning it on lets tutor-any-lecture download the audio track of a video (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. Until you turn it on, no audio is downloaded. From then on the decision and the responsibility are yours for every address you give, a school's or a meeting platform's recordings included: check that you are allowed to download it, and follow the site's terms and copyright. The tool does not check them for you. Use it for personal study only. The tool never uses your login or cookies, so a recording behind a sign-in is not reachable this way: there use the platform's captions, or a file you downloaded yourself. DRM is never circumvented.
 
 ## FAQ
 

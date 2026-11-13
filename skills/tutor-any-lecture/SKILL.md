@@ -46,7 +46,7 @@ Infer what the user wants (which lecture, which outputs, how deep) and the setti
    Panopto and Moodle pages need an agent with browser tools; see the agent notes under References.
 4. When there is a PDF, run `tutor-any-lecture slides --pdf F --unit DIR` before any transcription (the ASR prompt uses its terms). Slides alone make a slides-only unit: its note cites slides only, never times.
 5. Acquisition commands print one JSON object; exit 0 is `ok`. On exit 1 read `status`: `unhealthy` means the transcript (captions too) was kept with its `health` numbers: show them and tell the learner before planning on that transcript; `error` carries a `message`: show it to the learner. Exit 3 needs the user: `needs_user_file` (offer a media file, a transcript file or public video audio), consent, speech recognition (Step 0), a bigger `--budget-minutes`, or `--force` to overwrite. Details: [gate](references/gate.md).
-6. Lecture-capture platforms are read through their captions only; their audio is never downloaded. A public video's audio is downloaded only when the profile has `public_video_audio` on with a recorded consent ([url](references/adapters/url.md)).
+6. A video's audio is downloaded only when the profile has `public_video_audio` on with a recorded consent ([url](references/adapters/url.md)), whatever the platform. The tool never uses the learner's login, so a recording behind a sign-in is out of reach: use the platform's captions, or a file the learner downloaded.
 7. With a transcript, run `tutor-any-lecture slides suspects --unit DIR`. Suspects feed the errata section; the transcript is never edited.
 
 ## Read and plan
@@ -108,6 +108,7 @@ Extras are optional and never part of the gate.
 - Never type, store or ask for passwords. Use the browser's existing login; at a login page, stop and ask the user to sign in.
 - Never read browser cookies.
 - Download media only when the profile allows it.
+- Downloading audio is off until the learner switches it on; from then on it is their decision and their responsibility for every address. The tool does not check a platform's terms.
 - Never capture streams of recordings whose downloads are disabled, and never circumvent DRM.
 - Every claim you attribute to the lecturer carries a (slide N) or (mm:ss) citation.
 - Read-only on every platform: no submissions, posts or bookings. Course material stays local, for personal study.
