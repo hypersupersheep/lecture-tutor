@@ -163,3 +163,68 @@ def test_step0_names_installers():
 
 def test_card_rules_notice():
     assert CARD_NOTICE in read(TEACHING)
+
+
+# ---- task 27: the post quiz, installing, the asr add-on ----
+
+README = Path("README.md")
+README_ZH = Path("README.zh-CN.md")
+NOTICES_POINTER = "The full notice is in THIRD_PARTY_NOTICES.md."
+# "git" as a word of its own: not part of "GitHub", whatever script stands beside it.
+GIT_WORD = re.compile(r"(?<![A-Za-z])git(?![A-Za-z])")
+
+
+def install_section(path: Path) -> str:
+    """The README's install section: from its "## Install" (or "## 安装") heading to the next H2."""
+    lines = read(path).splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() in ("## Install", "## 安装"))
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def requirements_line(path: Path) -> str:
+    """The line of the install section that starts with the bold Requirements label."""
+    return next(
+        line for line in install_section(path).splitlines() if line.startswith(("**Requirements:**", "**需要**"))
+    )
+
+
+def test_skill_has_the_post_quiz_step():
+    t = read(SKILL)
+    assert "--phase post" in t
+    assert "cards add-misses" in t
+
+
+def test_step0_uses_cli_only_and_windows_powershell():
+    t = read(SKILL)
+    for s in ("--cli-only", "-CliOnly", "powershell -NoProfile -ExecutionPolicy Bypass -File"):
+        assert s in t
+
+
+def test_install_docs_never_give_pwsh_alone():
+    texts = {"SKILL.md": read(SKILL), "README.md": install_section(README), "README.zh-CN.md": install_section(README_ZH)}
+    assert [name for name, text in texts.items() if "pwsh -File" in text] == []
+    # The sections are real: each names the Windows installer.
+    assert all("install.ps1" in text for text in texts.values())
+
+
+def test_readmes_name_git_in_requirements():
+    for path in (README, README_ZH):
+        line = requirements_line(path)
+        assert GIT_WORD.search(line), f"{path}: {line}"
+        assert "Node.js" in line and "npx skills add" in line
+
+
+def test_asr_is_described_as_an_add_on():
+    t = read(SKILL)
+    assert "--with-asr" in t
+    assert "-WithAsr" in t
+
+
+def test_teaching_points_to_third_party_notices():
+    t = read(TEACHING)
+    assert CARD_NOTICE in t and NOTICES_POINTER in t
+    # Right after the attribution line, which stays as it is.
+    between = t[t.index(CARD_NOTICE) + len(CARD_NOTICE) : t.index(NOTICES_POINTER)]
+    assert between.strip() == ""
+    assert Path("THIRD_PARTY_NOTICES.md").is_file()

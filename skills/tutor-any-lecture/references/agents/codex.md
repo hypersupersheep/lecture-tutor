@@ -4,13 +4,13 @@ The workflow is SKILL.md's; this page only maps it onto Codex.
 
 ## Install
 
-The installer copies the skill to `~/.codex/skills/tutor-any-lecture/` when `~/.codex` exists (or with `--agents codex`). The command itself is installed as SKILL.md, Step 0 says.
+The installer copies the skill to `~/.codex/skills/tutor-any-lecture/` when `~/.codex` exists (or with `--agents codex`). The command itself is installed as SKILL.md, Step 0 says, with `--cli-only` because the skill is already in place. On Windows the installer is `powershell -NoProfile -ExecutionPolicy Bypass -File "<skill folder>\scripts\install.ps1"` with its flags (`-Yes -CliOnly`, as in Step 0); it works in Windows PowerShell 5.1 and in PowerShell 7, and from Git Bash. `bash install.sh` is not for Windows.
 
 ## Calling the command
 
-Run each `tutor-any-lecture …` call as a shell command with every path quoted, or as an argument list when the tool takes one. If the command is not on PATH, read its absolute path from `${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path` (or `%APPDATA%\tutor-any-lecture\cli-path` on Windows) and use that.
+Run each `tutor-any-lecture …` call as an argument list when the tool takes one. Otherwise run it as a shell command: put every path in single quotes, and write a single quote inside a path as `'\''`: `it's week 4.mp4` becomes `'it'\''s week 4.mp4'`. Then no file name can run as shell code. In PowerShell, write a single quote inside a single-quoted path as `''` instead. If the command is not on PATH, read its absolute path from `${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path` (or `%APPDATA%\tutor-any-lecture\cli-path` on Windows) and use that.
 
-A sandbox that blocks network access stops the commands that need it: `acquire url` (the video site) and the first local transcription (the speech model download). When one fails that way, ask the learner to allow network access for that command, and run it again; every other command works offline.
+A sandbox that blocks network access stops the commands that need it: `acquire url` (the video site) and the first local transcription (the speech model download). When one fails that way, ask the learner to allow network access for that command, and run it again; every other command works offline. The installer and transcription can run for many minutes: give them the longest timeout the sandbox allows, or run them in the background.
 
 ## Without browser tools
 

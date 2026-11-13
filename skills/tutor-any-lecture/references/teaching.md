@@ -6,17 +6,29 @@ A command that reads plan.json, items.json, assignment.json, cards.json or map.j
 
 ## plan.json
 
-One JSON object with exactly the twelve keys `course`, `unit`, `goal`, `content_type`, `note_language`, `lecture_language`, `duration_s`, `outputs`, `sections`, `concepts`, `tracked`, `output_target`. A missing key, or a value outside the rules below, is a `PlanError` (exit 1).
+One JSON object holding the twelve keys `course`, `unit`, `goal`, `content_type`, `note_language`, `lecture_language`, `duration_s`, `outputs`, `sections`, `concepts`, `tracked`, `output_target`. Every command that reads plan.json rejects it (a `PlanError`: exit 1, one stderr line that starts with `plan.json:`) when, and only when:
+- the file is missing, its bytes are not UTF-8 or not valid JSON (a leading byte-order mark is accepted), or its top level is not an object;
+- one of the twelve keys is missing (extra keys are ignored);
+- `course` or `unit` cannot be a folder name (the rule below);
+- `note_language` or `lecture_language` is not a string, is "auto" in any letter case, or is not two or three lowercase letters;
+- `goal` is not deep, exam or quick; `output_target` is not markdown or obsidian;
+- `duration_s` is neither a number nor null (true and false are not numbers);
+- `outputs` is not a list of strings;
+- `concepts` is not a list, or one of its entries is not an object with a string `id`;
+- `tracked` is not a list, names an id that no concept has, names one twice, or does not hold exactly `min(5, len(concepts))` ids.
 
-- `course`, `unit`: the two folder names of the unit. They must work as folder names everywhere: no `/ \ : * ? " < > |`, no control character, no leading or trailing space, no trailing dot. Write `CS 101 - Intro`, not `CS 101: Intro`.
+Nothing else is checked. `content_type`, `sections`, each concept's `name`, `type` and `citations`, and the members of `outputs` are yours to get right, as the list further below says.
+
+**Course and unit names.** Each is a non-empty string with no leading or trailing whitespace, none of `/ \ : * ? " < > |`, no control character, not `.` or `..`, no trailing dot, and not a Windows device name (CON, PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, in any letter case, also before an extension, as in `con.txt`). `progress due` and `progress render` apply the same rule to their `--course`. Write `CS 101 - Intro`, not `CS 101: Intro`.
+
 - `goal`: deep, exam or quick. `output_target`: markdown or obsidian (a notion profile is written as markdown).
 - `content_type`: formula, code, concept or mixed; it steers the item kinds below.
 - `note_language`, `lecture_language`: lowercase primary subtags such as "en", "zh", "ja"; never "auto".
 - `duration_s`: the lecture length in seconds, a number, or null when unknown.
 - `outputs`: a list of strings from explanation, pretest, quiz, cards, map.
-- `concepts`: a list of `{"id", "name", "type", "citations"}`. `type` is one of `definition`, `theorem`, `method`, `example`, `pitfall` (the map node types); `citations` are plain strings such as `"(slide 1)"` or `"(13:42)"`. Concept ids are unique strings; use the map's id style (letters, digits and underscores, starting with a letter) so a concept can also be a map node.
-- `tracked`: a list of exactly `min(5, len(concepts))` distinct concept ids, all present in `concepts`.
-- `sections`: a list of objects, one per planned H2 section of the note. Their keys are free (the command does not check them); use `{"title": "…", "concepts": [ids], "citations": ["(slide 1)", …]}`.
+- `concepts`: a list of `{"id", "name", "type", "citations"}`. `type` is one of `definition`, `theorem`, `method`, `example`, `pitfall` (the map node types); `citations` are plain strings such as `"(slide 1)"` or `"(13:42)"`. Give every concept its own id, in the map's id style (letters, digits and underscores, starting with a letter), so a concept can also be a map node.
+- `tracked`: `min(5, len(concepts))` distinct concept ids.
+- `sections`: a list of objects, one per planned H2 section of the note: `{"title": "…", "concepts": [ids], "citations": ["(slide 1)", …]}`.
 
 ```json
 {
@@ -46,6 +58,8 @@ One JSON object with exactly two keys:
 - `"practice"`: a list.
 
 Every item, tracked or practice, is an object with exactly the nine keys `id`, `concept`, `kind`, `prompt`, `answer`, `rubric`, `citation`, `difficulty`, `variant`. `id`, `concept`, `prompt`, `answer`, `rubric` and `citation` are strings; `difficulty` is a small integer (1 easy to 3 hard). A tracked item's `variant` equals its letter key and its `concept` equals its concept key; a practice item has `"variant": null`. Ids are unique across the whole file. `kind` is one of `recall`, `apply`, `transfer`, `predict_output`, `complete_code`, `which_method`, `contrast`. `rubric` says what a full answer must contain and what earns half; `citation` is a plain citation string.
+
+Label each item by what it really asks. An item that asks the learner to state a definition or a formula, or to repeat the lecture's own worked example, is `recall`; an `apply` item gives new numbers or a new case.
 
 `tracked` holds the plan's tracked concepts only, each with A, B and C, so the bank is at least 3 × the tracked count plus the practice items. A short synthetic example (variants B and C of `bias` have the same shape as A, with their own ids and prompts, `"variant": "B"` and `"variant": "C"`):
 
@@ -78,7 +92,7 @@ Every item, tracked or practice, is an object with exactly the nine keys `id`, `
 
 ## Practice items
 
-In-note checks (`tal:check`) and extra practice use practice items only. A practice prompt must not overlap a tracked prompt: containment ≥ 0.6 either way fails `tracked_vs_practice`.
+In-note checks (`tal:check`), extra practice and interleaved items use practice items only. A practice prompt must not overlap a tracked prompt: containment ≥ 0.6 either way fails `tracked_vs_practice`.
 
 ## Order of work
 
@@ -104,28 +118,41 @@ Goal quick: a quiz session asks 5–8 items. items.json still carries A, B and C
 
 **Why prompts.** One "why does this step hold" prompt per derivation, answer folded, the answer quoting the lecturer with a citation.
 
+## Asking one item
+
+The same protocol for every phase: pre, post, d1, d7, d21 and practice.
+1. Ask one item at a time. The learner answers in their own words.
+2. Before you say whether the answer was right, ask how sure they are: 1 guessing, 2 unsure, 3 sure.
+3. Grade 0, 0.5 or 1 against the rubric. Then show the cited answer; never before the attempt.
+4. Log the score and the confidence together: `tutor-any-lecture progress log --unit DIR --item ID --phase P --score S --confidence K [--exposure E]` (no `--course`: course and unit come from plan.json). It appends one line to `<workspace>/progress/<course>.jsonl`. An unknown item id exits 2.
+
+`tutor-any-lecture items next --unit DIR --phase P` prints `{"phase", "items", "missing"}` for P in pre|post|d1|d7|d21 (`practice` is not a phase there). Practice items come from the `practice` list of items.json or from `tutor-any-lecture items get --unit DIR --id ID`, and are logged with `--phase practice`.
+
 ## Pretest
 
-The pretest is asked in chat before the learner reads the note, whether or not they attended. Before the first question, and again when reporting the score, tell the learner that a low pretest score is normal: guessing first makes the lecture stick better. The score changes the reading focus, which folded supplements to suggest, and the next unit's `level`; it never triggers a rewrite of the note. Ask the items as the quiz protocol below says, with phase `pre`, and record how the learner met the lecture with `--exposure` when they tell you (none, attended, watched; unknown otherwise).
+The pretest is asked in chat before the learner reads the note, whether or not they attended. Before the first question, and again when reporting the score, tell the learner that a low pretest score is normal: guessing first makes the lecture stick better. The score changes the reading focus, which folded supplements to suggest, and the next unit's `level`; it never triggers a rewrite of the note. Ask the `pre` items as above, and record how the learner met the lecture with `--exposure` when they tell you (none, attended, watched; unknown otherwise). Then ask the learner to read the note and to say when they have.
 
-## Quiz protocol
+## Post quiz
 
-- `tutor-any-lecture items next --unit DIR --phase P` takes P in pre|post|d1|d7|d21 and prints `{"phase", "items", "missing"}`. Practice items come from the `practice` list of items.json or from `tutor-any-lecture items get --unit DIR --id ID`, and are logged with `--phase practice`.
-- One item at a time. The learner answers in their own words.
-- Grade 0, ½ or 1 against the rubric. Then ask for confidence 1–3 (1 guessing, 3 sure).
-- Show the cited answer after the attempt, never before.
-- Log it: `tutor-any-lecture progress log --unit DIR --item ID --phase P --score S --confidence K [--exposure E]` (no `--course`: course and unit come from plan.json; score `0`, `0.5` or `1`). It appends to `<workspace>/progress/<course>.jsonl`.
-- After a post or review quiz, `tutor-any-lecture cards add-misses --unit DIR` turns missed items into miss cards.
+When the learner says they have read the note, get the items with `tutor-any-lecture items next --unit DIR --phase post`, ask and log each one as above with `--phase post`, then run `tutor-any-lecture cards add-misses --unit DIR` (when "cards" is in plan.outputs). The reviews are counted from the day of the unit's first `post` attempt: until a `post` attempt exists, nothing but that post quiz is ever due, and no learning gain can be measured.
 
-## Reviews
+## Reviews and "quiz me"
 
-d1, d7 and d21 fall 1, 7 and 21 days after the first post-test; d1 and d21 are optional. `tutor-any-lecture progress due --course C` lists what is due as `{"unit", "phase", "due", "optional"}` entries. For d1 and d21, read `missing` in the `items next` output and write the D (d1) or E (d21) variants for those concepts into items.json before quizzing. `tutor-any-lecture progress render --course C` writes the progress page `<workspace>/progress/<course>.md`.
+**Which course.** The course the learner names. When they name none, the courses are the log files under `<workspace>/progress/`: each `<course>.jsonl` is one course.
 
-**Interleaving.** From week 3, quizzes mix in earlier units' items and "which method applies" items.
+**What is due.** `tutor-any-lecture progress due --course C` prints a list of `{"unit", "phase", "due", "optional"}` entries, oldest first:
+- `post`: the unit has a pretest attempt and no post attempt; its post quiz is still owed. Run it as in Post quiz.
+- `d1`, `d7`, `d21`: 1, 7 and 21 days after the unit's first post attempt. d1 and d21 are optional, and d1 lapses once d7 is due or done. Get the items with `tutor-any-lecture items next --unit DIR --phase P`; for d1 and d21, read `missing` in its output and write the D (d1) or E (d21) variants for those concepts into items.json first (or skip the optional review). Ask and log with `--phase P`, then run `tutor-any-lecture cards add-misses --unit DIR`.
+
+For an entry, DIR is `<workspace>/courses/<course>/<unit>`. Anything the learner wants beyond what is due is practice: practice items, logged with `--phase practice`. Practice misses make no cards.
+
+**Interleaving.** From a course's third unit on, a quiz may add up to two items from earlier units of the same course. Only practice items are reused, never a tracked variant, and each is logged against its own unit (`--unit` that unit's folder) with `--phase practice`.
+
+`tutor-any-lecture progress render --course C` writes the progress page `<workspace>/progress/<course>.md`: pre, post and day-7 means, normalized gain, retention, what is due, and confident-but-wrong answers.
 
 ## Cards
 
-Core cards at most 25 per unit (10 for goal quick). Miss cards come from `tutor-any-lecture cards add-misses --unit DIR`, at most 10 per unit, not counted against the core cap. Rules:
+Core cards at most 25 per unit (10 for goal quick). Miss cards come from `tutor-any-lecture cards add-misses --unit DIR`, which adds one card for each item scored below 1 in a post, d1, d7 or d21 attempt of the unit, at most 10 per unit, not counted against the core cap. Rules:
 - one point per card, answered by recall;
 - a clear cue on the front that does not leak the answer;
 - difficulty around 90% success with some effort;
@@ -136,12 +163,16 @@ Core cards at most 25 per unit (10 for goal quick). Miss cards come from `tutor-
 
 Card-writing rules adapted from anki-card-forge (https://github.com/FrostySL/anki-card-forge), MIT License, Copyright (c) 2026 Lukas Sinning.
 
+The full notice is in THIRD_PARTY_NOTICES.md.
+
+**Card text.** Write fronts and backs as plain text. `cards export` converts three things for Anki: `$…$` and `$$…$$` math (into MathJax delimiters; write `\$` for a literal dollar sign), backticked code, and fenced code blocks; line breaks become line breaks. Write no HTML: `<`, `>` and `&` are escaped, so a tag shows as text. Put the source in `citation`, not in the back: the export appends the citation under the back (unless the back already ends with it).
+
 GUIDs are stable (derived from course, unit and card id), so re-importing cards.tsv updates cards without losing review history: never renumber card ids. cards.json is a top-level list of `{"id", "concept", "front", "back", "citation", "kind"?}`; `kind` is "core" (the default) or "miss", and every value is a string. `tutor-any-lecture cards export --unit DIR` writes cards.tsv for Anki's import.
 
 ```json
 [
   {"id": "c01", "concept": "bias", "front": "Bias of an estimator: definition?",
-   "back": "Expected value of the estimator minus the true parameter.", "citation": "(slide 3)"}
+   "back": "$E[\\hat\\theta] - \\theta$: the expected value of the estimator minus the true parameter.", "citation": "(slide 3)"}
 ]
 ```
 
@@ -153,4 +184,10 @@ map.json is `{"nodes": [{"id", "label", "type", "order"?, "citation"?}], "edges"
 - Every edge names existing nodes and has a verb ("defines", "is used in", "fails when").
 - At most 12 nodes per view. A map of more than 12 nodes needs views, and then every node belongs to at least one view.
 
-`tutor-any-lecture map validate --unit DIR` checks it; `tutor-any-lecture map mermaid --unit DIR` writes overview.mmd (`--view ID` for one view).
+`tutor-any-lecture map validate --unit DIR` checks it; `tutor-any-lecture map mermaid --unit DIR` writes overview.mmd (`--view ID` for one view; an unknown view exits 2).
+
+## Suspects and the errata section
+
+`tutor-any-lecture slides suspects --unit DIR` writes `sources/suspects.json`: transcript words that look like a slide term, each with the time, the heard word and the nearest slide term. A suspect is a lead, not a finding. List in the errata section only real transcription errors: a word the recording says differently from what the transcript wrote. A suspect that is an inflection of the slide's word ("payments" for "payment") or is simply correct is not listed.
+
+The gate requires only that the `tal:errata` markers pair up and that there is at most one errata section; it does not compare the section with suspects.json, and the section's text counts as neither prose nor quotes. A unit with no real errata may leave the section out.

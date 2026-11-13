@@ -4,7 +4,11 @@ The workflow is SKILL.md's. This page covers agents other than Claude Code and C
 
 ## Install
 
-For agents that read `~/.agents/skills`, the installer copies the skill to `~/.agents/skills/tutor-any-lecture/` when `~/.agents` exists (or with `--agents agents`). For any other agent, copy the folder `tutor-any-lecture` into that agent's skills folder by hand. The command itself is installed as SKILL.md, Step 0 says; any agent that can run shell commands can use it.
+For agents that read `~/.agents/skills`, the installer copies the skill to `~/.agents/skills/tutor-any-lecture/` when `~/.agents` exists (or with `--agents agents`). For any other agent, copy the folder `tutor-any-lecture` into that agent's skills folder by hand. The command itself is installed as SKILL.md, Step 0 says, with `--cli-only` because the skill is already in place; any agent that can run shell commands can use it. On Windows the installer is `powershell -NoProfile -ExecutionPolicy Bypass -File "<skill folder>\scripts\install.ps1"` with its flags (`-Yes -CliOnly`, as in Step 0); it works in Windows PowerShell 5.1 and in PowerShell 7, and from Git Bash. `bash install.sh` is not for Windows.
+
+## Running the command
+
+Pass each `tutor-any-lecture …` call as an argument list when your tool takes one. Otherwise run it as a shell command: put every path in single quotes, and write a single quote inside a path as `'\''`: `it's week 4.mp4` becomes `'it'\''s week 4.mp4'`. Then no file name can run as shell code. In PowerShell, write a single quote inside a single-quoted path as `''` instead. The installer, `acquire local`, `transcribe`, and `acquire url` when it transcribes audio can run for many minutes: use the longest timeout your shell tool allows, or run them in the background.
 
 ## No browser tools
 

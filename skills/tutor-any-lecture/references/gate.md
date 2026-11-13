@@ -14,17 +14,19 @@ Exit 0 on PASS, 1 on FAIL.
 
 | check | what it catches | worst status |
 |---|---|---|
-| `citations` | a slide number above the last slide; a time more than 2 s past the duration; a time citation in a slides-only unit; a unit with no `sources/transcript.json` that is not slides-only | FAIL |
+| `citations` | a slide number above the last slide; a time more than 2 s past the duration; a time citation in a slides-only unit; a unit with no `sources/transcript.json` that is not slides-only; `quote_source`: a cited quote that is in neither the transcript nor the slides (FAIL), or that is there but not at the place it cites (WARN, naming where it was found); see [writing](writing.md), Faithful to the lecturer | FAIL |
 | `coverage` | a slide that is neither cited anywhere in the note nor listed (`slide N` or `slides N–M`) in the `tal:not-covered` section | FAIL |
-| `terms` | capitalised multi-word terms and words with an inner capital that appear in neither the transcript nor the slides (NOTE callouts are skipped) | WARN |
-| `numbers` | numbers with a unit (%, percent, bps, years, months, weeks, days, hours, minutes) or a currency sign that are in the sources but not in the note, or the other way round | WARN |
-| `structure` | the note rules of [writing](writing.md): markers, H4, numbered headings, callout types, TOC links, `<details>` answers, quotes per paragraph and their citations, uncited blockquotes (FAIL); length, time citations and quotes per minute, H2 count, thin sections, long paragraphs, bold, highlights, bullets, quote share (WARN) | FAIL |
+| `terms` | capitalised multi-word terms and words with an inner capital, in the lecture prose, that appear in neither the transcript nor the slides | WARN |
+| `numbers` | numbers with a unit (%, percent, bps, years, months, weeks, days, hours, minutes) or a currency sign that are in the sources but not in the lecture prose, or the other way round | WARN |
+| `structure` | the note rules of [writing](writing.md): markers, H4, headings with an outline prefix (`1.`, `1.2`), callout types, TOC links, `<details>` answers, quotes per paragraph and their citations, uncited blockquotes (FAIL); length, time citations and quotes per minute, H2 count, thin sections, long paragraphs, bold, highlights, bullets, quote share (WARN) | FAIL |
 | `items` | items.json against plan.json and the note: `variants`, `apply_share`, `citation`, `prompt_overlap`, `tracked_leak`, `tracked_vs_practice` (FAIL); `pretest_complete` (WARN); a missing items.json or assignment.json (FAIL) | FAIL |
 | `cards` | `count` over the cap, `duplicates`, an empty `citation` (FAIL); `back_length` over 350 characters (WARN) | FAIL |
 | `map` | map.json schema, node types, edges without a verb or with an unknown end, views over 12 nodes, nodes in no view | FAIL |
 | `banned_phrases` | stock phrases in the note, such as "delve", "it's worth noting", "in conclusion", "in summary" | WARN |
 
 **Skipped checks.** `items` is skipped when neither "quiz" nor "pretest" is in plan.outputs, `cards` when "cards" is not, and `map` when "map" is not. A skipped check is PASS with the detail `skipped: not in plan.outputs`. A listed output whose file is missing is FAIL.
+
+**Lecture prose.** `terms` and `numbers` read the lecture prose only: the note without its marker sections (pretest, checks, not covered, errata), NOTE callouts, code and math. A number that appears only in a pretest answer does not count as in the note.
 
 **Unknown duration.** When neither plan.json nor source.json gives a duration, the per-minute checks are skipped and `structure` reports a WARN; time citations are not range-checked and `citations` reports a WARN. Unknown duration is never a FAIL on its own.
 
@@ -46,17 +48,19 @@ Exit 0 on PASS, 1 on FAIL.
 | code | meaning |
 |---|---|
 | 0 | PASS or WARN, a healthy transcript, doctor ready |
-| 1 | verify or validate FAIL; an unhealthy or empty transcript; selftest not ok; a `ProfileError` or `PlanError`; a missing file; an input that could not be read or a tool that failed; a malformed plan.json, items.json, assignment.json, cards.json or map.json (one stderr line naming the file) |
-| 2 | usage error (a wrong or missing flag), a command that is not implemented yet, an unknown item id |
-| 3 | needs the user: doctor not ready; consent required (`profile set public_video_audio on`); a file needed from the user (`needs_user_file`); ASR time budget exceeded (rerun with a larger `--budget-minutes`); no ASR backend (see `tutor-any-lecture doctor`); the output exists (rerun with `--force`) |
+| 1 | verify or validate FAIL; an unhealthy or empty transcript; selftest not ok; a missing file (plan.json, explanation.md, map.json, assignment.json for `items next`, a slide PDF, a transcript for `slides suspects`, a progress log for `progress render`, a materials folder for `acquire route`); a malformed file: plan.json, items.json, assignment.json, cards.json or map.json (one stderr line naming the file), or profile.yaml (a `ProfileError` naming the key); an acquisition input that could not be read or parsed, or a tool or ASR backend that failed (an `error` object, below) |
+| 2 | usage error (a wrong or missing flag, `slides` without `--pdf` and `--unit`, a bare `acquire`), an unknown item id (`items get`, `progress log`), an unknown `--view` for `map mermaid` |
+| 3 | needs the user: doctor not ready; consent required (`profile set public_video_audio on`); a file needed from the user (`needs_user_file`); ASR time budget exceeded (rerun with a larger `--budget-minutes`); speech recognition not installed (run the installer again with `--with-asr`, Windows `-WithAsr`); the output exists (rerun with `--force`); `selftest --keep` on a folder that exists and is not empty (pick a new or empty one) |
+| 130 | interrupted with Ctrl+C |
+| 143 | stopped by a signal, such as a shell timeout; the command cleaned up after itself and can be run again |
 
 ## Acquisition JSON
 
 `acquire import`, `acquire panopto`, `acquire local`, `acquire url` and `transcribe` print exactly one JSON object on stdout:
 - `{"status": "ok", "health": {…}}`, exit 0;
-- `{"status": "unhealthy", "health": {…}}`, exit 1: the files are written, but show the health numbers and tell the learner before planning on that transcript; a rerun needs `--force`;
-- `{"status": "error", "message": …}`, exit 1, nothing written: the source had no timed text (`no timed segments found`), the input could not be read or parsed, a tool or ASR backend failed, the video page could not be read, or the URL is a playlist. Show `message` to the learner;
-- `acquire url` only: `{"status": "needs_user_file", "message": …}`, exit 3.
+- `{"status": "unhealthy", "health": {…}}`, exit 1: the transcript was written but failed a health check; for `acquire url` these are caption tracks, kept and reported when no healthy track exists and audio may not be used. Show the health numbers and tell the learner before planning on that transcript; a rerun needs `--force`;
+- `{"status": "error", "message": …}`, exit 1, nothing written. The causes: the input file is missing or is a folder; the source had no timed text (`no timed segments found`); the input is not UTF-8 or could not be parsed; profile.yaml is malformed; a tool (ffmpeg, yt-dlp) or the ASR backend failed; the video page could not be read (private, removed, region- or login-locked); the URL is a playlist (one video per unit). Show `message` to the learner;
+- `acquire url` only: `{"status": "needs_user_file", "message": …}`, exit 3: no usable captions, and audio may not or cannot be downloaded. On a lecture-capture or meeting platform the message says its recordings are not downloaded: only its captions are ever used.
 
 `health` has the keys `coverage` (share of the duration the segments span, healthy from 0.9), `repetition` (share of segments repeating the previous one, healthy up to 0.5), `spots_ok` (segments near 10%, 50% and 90% of the duration), `overrun` (a segment ends more than 2 s after the duration), `loop` (five or more identical segments in a row), `ok`, and `duration_known`. With an unknown duration, coverage and spots cannot be measured and count as fine.
 

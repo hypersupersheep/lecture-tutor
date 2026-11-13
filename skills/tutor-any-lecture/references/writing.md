@@ -15,7 +15,7 @@ The note is written in `plan.note_language`. The `terms` setting decides how tec
 - `note`: the note language only;
 - `original`: the lecturer's term only.
 
-Write directly: conclusion first, no greetings, no wrap-up. When you report the lecturer's position, write "the lecturer says", not "we think". Write headings in sentence case: a run of capitalised words, or a word with a capital inside it (an acronym, a CamelCase name), that does not appear in the transcript or slides draws a `terms` warning. NOTE callouts are exempt.
+Write directly: conclusion first, no greetings, no wrap-up. When you report the lecturer's position, write "the lecturer says", not "we think". Write headings in sentence case: a run of capitalised words, or a word with a capital inside it (an acronym, a CamelCase name), that does not appear in the transcript or slides draws a `terms` warning. NOTE callouts and the marker sections are exempt.
 
 ## Skeleton
 
@@ -70,7 +70,7 @@ How to read this note: <two or three sentences, in the note language>
 ```
 
 - Start the note with one H1 (a style rule; verify does not check it). Then the table of contents, then the "how to read this note" lines, then the sections.
-- **How to read this note** (kept from v1, shortened): the body holds only what the lecturer said and the slides show, in lecture order; quoted text is verbatim (slides word for word, speech with filler words removed); `(slide N)` is the footer number and `(mm:ss)` the recording time; note boxes are tutor additions, caution boxes are errata and doubts; equations are numbered so they can be referred to. Add or drop half a sentence to fit the unit (for example, no exercises).
+- **How to read this note** (kept from v1, shortened): the body holds only what the lecturer said and the slides show, in lecture order; quoted text is verbatim from the slides or the recording, with `…` marking a cut and `[ ]` an insertion; `(slide N)` is the footer number and `(mm:ss)` the recording time; note boxes are tutor additions, caution boxes are errata and doubts; equations are numbered so they can be referred to. Add or drop half a sentence to fit the unit (for example, no exercises).
 - **Table of contents.** One list item per H2 that you want listed. Each link must match an H2: `[text](#slug)` for markdown (see [markdown](output-targets/markdown.md)), `[[#Heading]]` with the heading text exactly for obsidian (see [obsidian](output-targets/obsidian.md)). Keep `[ ] | #` out of H2 text.
 - **Optional sections.** "What the lecturer said about the course" collects arrangements, assessment, readings and exam scope that the lecturer scattered across the session, with every time range on its anchor line. "Exercises" and a formula quick-reference table appear only when the source has exercises or formulas (see below).
 
@@ -78,7 +78,7 @@ How to read this note: <two or three sentences, in the note language>
 
 One H2 per topic change by the lecturer, in lecture order; a 90-minute lecture usually has 10 to 16. Take topic changes from the lecturer's transition sentences ("so, bond valuation") and the slide sections; sources/chapters.json, when present, is a hint only (its chapters are often too fine and their titles often wrong). The single exception to lecture order is the optional course-arrangements section.
 
-H3 appears only for three things, and its title starts with "Derivation:", "Worked example:" or "Class discussion:"; usually 3 to 6 per lecture. An H3 holds only the derivation or example itself; the lecturer's asides during it go back into the H2 prose (they may follow the H3). There is no H4, and headings carry no numbers. A section shorter than 150 CJK characters or 90 words is thin: merge it into the previous one.
+H3 appears only for three things, and its title starts with "Derivation:", "Worked example:" or "Class discussion:"; usually 3 to 6 per lecture. An H3 holds only the derivation or example itself; the lecturer's asides during it go back into the H2 prose (they may follow the H3). There is no H4. A heading may start with a number (`## 2008 crisis and rates`), but never with an outline prefix such as `1.`, `2)`, `1.2` or `1.2.3` (`## 1. Rates` fails the gate). A section shorter than 150 CJK characters or 90 words is thin: merge it into the previous one.
 
 The first line of every topic H2 is an italic anchor line written as a citation, for example `*(slides 14–16, 40:38–48:34)*` or, with several time ranges, `*(5:45–12:08, 36:47–40:29)*`. Fixed sections (pretest, not covered and errata, exercises, formula table) have no anchor line.
 
@@ -100,11 +100,13 @@ The same content as fragments (what appeared without rules): a bold label, then 
 
 ## Faithful to the lecturer
 
-Every definition, theorem and result in the body maps to a slide or a time. Definitions and theorems are quoted verbatim from the slides with `(slide N)`; the lecturer's key spoken explanations are quoted from the transcript with filler words ("uh", "all right", "you know") removed and nothing else changed, with `(mm:ss)` or a time range. Cite only the real source: slide content cites the slide, spoken content the time, both when both apply. A student's remark may be quoted as "a student answers: …" with its time and the lecturer's response. Mark removed self-repetition with "…".
+Every definition, theorem and result in the body maps to a slide or a time. Definitions and theorems are quoted verbatim from the slides with `(slide N)`; the lecturer's key spoken explanations are quoted verbatim from the transcript with `(mm:ss)` or a time range. Cite only the real source: slide content cites the slide, spoken content the time, both when both apply. A student's remark may be quoted as "a student answers: …" with its time and the lecturer's response.
+
+**Quotes are verbatim**, in the lecture's language (a note in another language still quotes the lecture's own words), copied from the transcript or the slide they cite. Two editorial marks are allowed: `…` (or `...`) marks an omission, such as filler words ("uh", "you know") or a self-repetition you cut; `[ ]` marks an insertion, such as `[the rate]` for a pronoun, or the slide's word in place of a mis-heard one. Letter case and punctuation may differ; words may not. The gate (`quote_source`, reported under `citations`) checks every cited quote of the lecture prose (an inline quote of 15 characters or more, or a blockquote that is not a callout; in a paragraph, list item, table row or callout): each run of three or more words (six or more CJK characters) between editorial marks must be in the text it cites, that is the cited slide, or the transcript within 60 seconds of the cited time or range. A quote found only elsewhere in the transcript or slides is a WARN that names where it was found: fix the citation. A quote found nowhere is a FAIL: copy the words again, or paraphrase and drop the quotation marks.
 
 Keep the lecturer's notation. A notation clash in the slides (one letter, two meanings) goes into a CAUTION callout; the body keeps the notation. When the slides give only a numeric example, a general form may go in the body, followed by a sentence saying the slides give only the example and the general form is a rewrite. Steps the lecturer skipped may be filled in a NOTE callout, using the method the lecturer named.
 
-The transcript is machine-made: names and numbers are often wrong ("forty years" for "four years", "80%" for "8%"). Numbers, names, institutions and formulas follow the slides. Inside a quote, correct a clear mis-hearing only when the slides confirm the right word, and log it. Small talk before the lecture and during the break stays out; say in the not-covered section, in one sentence, which time range was the break. A substantive exchange during the break may go into the body or a NOTE callout, marked as during the break.
+The transcript is machine-made: names and numbers are often wrong ("forty years" for "four years", "80%" for "8%"). Numbers, names, institutions and formulas follow the slides. Inside a quote, correct a clear mis-hearing only when the slides confirm the right word: write that word in `[ ]` in place of the mis-heard one, and list the error in the errata section. Small talk before the lecture and during the break stays out; say in the not-covered section, in one sentence, which time range was the break. A substantive exchange during the break may go into the body or a NOTE callout, marked as during the break.
 
 Order of writing: first pull the quotes you will use, with their sources, into a scratch file `quotes.md` in the unit folder (a working file, never a deliverable); then write the body around them; then check every sentence attributed to the lecturer against `quotes.md` and delete it or move it into a NOTE callout when it is not there. Last, walk through the slides page by page: each page's definitions, formulas and examples land in some section, or the page is listed as not covered.
 
@@ -127,8 +129,8 @@ explanation.md carries machine-readable sections between paired markers: `<!-- t
 What the sections print:
 - `pretest`: exactly the prompts of the variants assigned to phase `pre`, one per tracked concept, in the order `tutor-any-lecture items next --unit DIR --phase pre` prints them (sorted concept id), each as a numbered item followed by a `<details>` answer.
 - `check`: practice items only, verbatim from items.json, each numbered and followed by a `<details>` answer. Never a tracked item.
-- `not-covered`: every slide the lecture did not cover, written as `slide N` (or `slides N–M` for a run), with a sentence on why; the break, if any, in one sentence.
-- `errata`: transcript and slide errata, built from `sources/suspects.json` (heard word, nearest slide term, time in seconds; write it as mm:ss); flag, never silently fix. The lecturer's own slips go here too (say whether they corrected themselves), and slide typos with the slide number in the time column.
+- `not-covered`: every slide the lecture did not cover, written as `slide N`, or `slides N–M` for a run (en dash or hyphen), with a sentence on why; the break, if any, in one sentence.
+- `errata`: the real transcription errors among `sources/suspects.json` (heard word, nearest slide term, time in seconds; write it as mm:ss), flagged, never silently fixed. A suspect that is an inflection of the slide's word, or simply correct, is not listed (see [teaching](teaching.md), Suspects). The lecturer's own slips go here too (say whether they corrected themselves), and slide typos with the slide number in the time column. The gate checks only the markers of this section; with no errata, leave the section out.
 
 Every numbered item in `pretest` and `check` needs its `<details>` answer before the next numbered item. The answer cites its source. Start the answer on the line after `<summary>Answer</summary>`, as in the skeleton: on the same line, the `terms` check reads "Answer" and a capitalised first word of the answer as one term.
 
@@ -152,13 +154,15 @@ Per minute of lecture, CJK characters / English words of lecture prose (marker s
 | time citations | ≥ 0.67 | ≥ 0.5 | ≥ 0.2 |
 | verbatim quotes | ≥ 0.22 | ≥ 0.15 | ≥ 0.07 |
 
-Over the top of the range, first check for content the lecturer did not give; under the bottom, check the slide-by-slide walk for gaps. When the duration is unknown these per-minute checks are skipped with a warning.
+**The length window.** The note's length divided by the minutes must fall in the row's range, with one exception for short lectures: the top of the window is never below 400 words (800 CJK characters) in total, so a short lecture may still have real paragraphs. The top per minute is therefore `max(table top, 400 / minutes)` for words and `max(table top, 800 / minutes)` for CJK characters; the bottom does not change. For a 3-minute lecture at goal deep that is 26–133.3 words per minute, 78 to 400 words in all.
+
+Over the top of the window, first check for content the lecturer did not give; under the bottom, check the slide-by-slide walk for gaps. When the duration is unknown these per-minute checks are skipped with a warning.
 
 **Goal and coverage.** No extra sections inserted into lecture prose; goal changes length and coverage. Every goal keeps citations and faithfulness. There is no "speed-read" block, no "to-do for next week", no "interview questions", no summary at the end.
 
 ## Structure rules the gate enforces
 
-- No H4 or deeper; no numbered headings (FAIL).
+- No H4 or deeper; no heading that starts with an outline prefix (`1.`, `2)`, `1.2`, `1.2.3`) (FAIL). A heading that starts with a plain number passes.
 - At most `max(16, ceil(16 × minutes / 90))` H2s (WARN).
 - An H2 section of fewer than 150 CJK characters / 90 words is thin (WARN); a section whose prose is all inside marker sections is not counted.
 - A paragraph over 300 CJK characters / 180 words is too long (WARN).
@@ -170,7 +174,7 @@ Over the top of the range, first check for content the lecturer did not give; un
 - TOC links must match H2s: `[[#Heading]]` for obsidian, `[text](#slug)` for markdown (FAIL).
 - Callout types and `<details>` answers as above; marker problems (FAIL).
 
-Besides structure, verify checks citations, slide coverage (every slide is cited or listed in `tal:not-covered`), terms, numbers with units, the items, cards and map, and a list of stock phrases ("delve", "it's worth noting", "in conclusion", "in summary" and similar); see [gate](gate.md).
+Besides structure, verify checks citations and quotes (above), slide coverage (every slide is cited or listed in `tal:not-covered`), terms, numbers with units, the items, cards and map, and a list of stock phrases ("delve", "it's worth noting", "in conclusion", "in summary" and similar); see [gate](gate.md). The terms and numbers checks read the lecture prose only: the marker sections, NOTE callouts, code and math are left out, so a number that appears only in the pretest or an answer does not count as in the note.
 
 ## Exercises, formula table and v1 structures
 

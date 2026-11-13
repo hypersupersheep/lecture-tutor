@@ -2,7 +2,7 @@ Adapter: transcript import. A transcript or caption file the learner already has
 
 ## Platform
 
-Any source that exports timed text: caption files, a speech-to-text tool's output, and the transcript exports of meeting and lecture-capture platforms such as Zoom, Teams and Panopto. Command: `tutor-any-lecture acquire import --file F --unit DIR [--duration SEC] [--force]`.
+Any source that exports timed text: caption files, a speech-to-text tool's output, and the transcript exports of meeting and lecture-capture platforms such as Zoom, Teams and Panopto. Command: `tutor-any-lecture acquire import --file F --unit DIR [--duration SEC | --media FILE] [--force]`; `--media` reads the lecture's length from its video or audio file.
 
 ## URL patterns
 
@@ -20,13 +20,13 @@ Files may be UTF-8 with or without a byte-order mark, with Windows or Unix line 
 
 ## Read-only steps
 
-1. Ask for the media length if the learner knows it, and pass it in seconds as `--duration SEC`. Without it the duration is unknown: the health check cannot measure coverage, and the gate's per-minute checks become warnings.
+1. When the recording itself is at hand, pass it as `--media FILE`; otherwise ask for the media length if the learner knows it, and pass it in seconds as `--duration SEC` (not both). Without it the duration is unknown: the health check cannot measure coverage, and the gate's per-minute checks become warnings.
 2. If there are slides, run `tutor-any-lecture slides --pdf F --unit DIR` (before or after the import; it never overwrites the source.json the import writes).
 3. Run `tutor-any-lecture acquire import --file F --unit DIR --duration SEC`.
 4. Outcome, one JSON object on stdout:
    - `{"status": "ok", "health": {…}}`, exit 0: `sources/transcript.json` and `sources/source.json` (`"kind": "transcript"`, `"acquisition": "import"`) are written;
    - `{"status": "unhealthy", "health": {…}}`, exit 1: the files are written, but read `status`, show the health numbers (`coverage`, `repetition`, `spots_ok`, `overrun`, `loop`) and tell the learner before planning on that transcript. A transcript that covers only part of the lecture, or ends after the given duration, lands here;
-   - `{"status": "error", "message": …}`, exit 1, nothing written: the file held no timed text (`no timed segments found`), was not UTF-8, or could not be parsed. Show `message` to the learner and ask for another export;
+   - `{"status": "error", "message": …}`, exit 1, nothing written: the file does not exist, held no timed text (`no timed segments found`), was not UTF-8, or could not be parsed. Show `message` to the learner and ask for another export;
    - exit 3, one line on stderr: the unit already has `sources/transcript.json`; rerun with `--force` to replace it.
 5. Run `tutor-any-lecture slides suspects --unit DIR` when the unit has slides.
 

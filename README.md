@@ -106,7 +106,7 @@ flowchart TD
 
 ## Install
 
-**Requirements:** an agent that loads skills and runs shell commands (Claude Code, Codex and others), and either [uv](https://docs.astral.sh/uv/) or Python 3.10+. Works on macOS, Linux and Windows x64.
+**Requirements:** an agent that loads skills and runs shell commands (Claude Code, Codex and others); either [uv](https://docs.astral.sh/uv/) or Python 3.10+; git, for an install that does not start from a checkout; Node.js only for `npx skills add`. Works on macOS, Linux and Windows x64.
 
 **Option A: `npx skills` (recommended)**
 
@@ -114,7 +114,7 @@ flowchart TD
 npx skills add hypersupersheep/tutor-any-lecture
 ```
 
-This copies the skill into your agent's skills folder. Success check: your agent lists `tutor-any-lecture` among its skills. The command-line tool is installed on first use: the skill's Step 0 runs `tutor-any-lecture doctor --json`, and when the command is missing it offers to run the installer that ships inside the skill (`scripts/install.sh`, or `scripts/install.ps1` on Windows).
+This copies the skill into your agent's skills folder. Success check: your agent lists `tutor-any-lecture` among its skills. The command-line tool is installed on first use: the skill's Step 0 runs `tutor-any-lecture doctor --json`, and when the command is missing it offers to run the installer that ships inside the skill with `--cli-only`, since the skill is already in place (`scripts/install.sh`, or `scripts/install.ps1` on Windows).
 
 **Option B: Claude Code plugin**
 
@@ -134,15 +134,17 @@ Install tutor-any-lecture for me. After each step, check the result. If a check 
 
 1. Clone https://github.com/hypersupersheep/tutor-any-lecture into a folder of your choice.
    Check: the folder contains install.sh and install.ps1.
-2. In that folder, run `bash install.sh --yes` on macOS or Linux, or `pwsh -File install.ps1 -Yes` on Windows. Do not pipe any download into a shell.
-   Check: the exit code is 0 and the last output is a JSON object with "ready": true. On exit code 3, show me what it printed (the "fix" lines of that JSON, or the instructions for installing uv) and stop.
+2. In that folder, run `bash install.sh --yes` on macOS or Linux, or `powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Yes` on Windows (also from Git Bash; `bash install.sh` is not for Windows). Do not pipe any download into a shell. It can take several minutes.
+   Check: the exit code is 0 and the last output is a JSON object with "ready": true. On exit code 3, show me what it printed (the "fix" lines of that JSON, or the instructions for installing uv or git) and stop.
 3. Read the full path of the command from the file ${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path (on Windows: %APPDATA%\tutor-any-lecture\cli-path) and run `<that path> selftest`.
    Check: the exit code is 0.
 4. Look for tutor-any-lecture/SKILL.md in your own skills folder (for example ~/.claude/skills/ or ~/.codex/skills/).
    Check: the file exists. If it does not, run the installer again with `--agents` followed by claude, codex or agents (on Windows: `-Agents`).
 ```
 
-The installer uses `uv tool install` when uv is present. Otherwise it creates a private environment in `~/.tutor-any-lecture/venv` (`%LOCALAPPDATA%\tutor-any-lecture\venv` on Windows). It installs nothing into your system Python and never downloads a script to run it. It then records the command's full path in the `cli-path` file, copies the skill to the agents it finds (`~/.claude`, `~/.codex`, `~/.agents`), and runs `tutor-any-lecture doctor --json`. Add `--dry-run` (`-DryRun`) to see the plan without changing anything.
+The installer uses `uv tool install` when uv is present. Otherwise it creates a private environment in `~/.tutor-any-lecture/venv` (`%LOCALAPPDATA%\tutor-any-lecture\venv` on Windows). It installs nothing into your system Python and never downloads a script to run it. It then records the command's full path in the `cli-path` file, copies the skill to the agents it finds (`~/.claude`, `~/.codex`, `~/.agents`), and runs `tutor-any-lecture doctor --json`. Exit codes: 0 ready, 1 failed or cancelled, 2 bad option, 3 needs action (it prints what to do). Add `--dry-run` (`-DryRun`) to see the plan without changing anything, and `--cli-only` (`-CliOnly`) to install the command without copying the skill.
+
+Speech recognition is an add-on, needed only for audio or video that has no captions. It is a large download (several hundred megabytes, more on Apple Silicon), so the installer leaves it out unless you add `--with-asr` (`-WithAsr`); you can run the installer again with it later. Captions, transcripts and slides work without it.
 
 **Option D: Claude.ai (ZIP upload)**
 

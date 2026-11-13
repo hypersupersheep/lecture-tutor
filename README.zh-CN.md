@@ -106,7 +106,7 @@ flowchart TD
 
 ## 安装
 
-**需要**:一个能加载 skill、能运行 shell 命令的 agent(Claude Code、Codex 等),以及 [uv](https://docs.astral.sh/uv/) 或 Python 3.10+ 其中之一。支持 macOS、Linux 和 x64 的 Windows。
+**需要**:一个能加载 skill、能运行 shell 命令的 agent(Claude Code、Codex 等);[uv](https://docs.astral.sh/uv/) 或 Python 3.10+ 其中之一;不是从克隆下来的仓库安装时还需要 git;只有用 `npx skills add` 时才需要 Node.js。支持 macOS、Linux 和 x64 的 Windows。
 
 **方式一:npx skills(推荐)**
 
@@ -114,7 +114,7 @@ flowchart TD
 npx skills add hypersupersheep/tutor-any-lecture
 ```
 
-这条命令把 skill 复制到 agent 的 skills 文件夹。怎样算成功:agent 列出的 skill 里有 `tutor-any-lecture`。命令行工具在第一次使用时安装:skill 的第 0 步运行 `tutor-any-lecture doctor --json`,找不到这个命令时,它会提出运行 skill 自带的安装脚本(`scripts/install.sh`,Windows 上是 `scripts/install.ps1`)。
+这条命令把 skill 复制到 agent 的 skills 文件夹。怎样算成功:agent 列出的 skill 里有 `tutor-any-lecture`。命令行工具在第一次使用时安装:skill 的第 0 步运行 `tutor-any-lecture doctor --json`,找不到这个命令时,它会提出运行 skill 自带的安装脚本,并加上 `--cli-only`,因为 skill 已经装好了(`scripts/install.sh`,Windows 上是 `scripts/install.ps1`)。
 
 **方式二:Claude Code 插件**
 
@@ -134,15 +134,17 @@ npx skills add hypersupersheep/tutor-any-lecture
 
 1. 把 https://github.com/hypersupersheep/tutor-any-lecture 克隆到你选的文件夹。
    检查:文件夹里有 install.sh 和 install.ps1。
-2. 在这个文件夹里运行安装脚本:macOS 或 Linux 上是 `bash install.sh --yes`,Windows 上是 `pwsh -File install.ps1 -Yes`。不要把下载的内容直接交给 shell 执行。
-   检查:退出码是 0,最后一段输出是一个 JSON 对象,里面有 "ready": true。退出码是 3 时,把它打印的内容给我看(JSON 里的 "fix",或者安装 uv 的说明),然后停下。
+2. 在这个文件夹里运行安装脚本:macOS 或 Linux 上是 `bash install.sh --yes`,Windows 上是 `powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Yes`(在 Git Bash 里也这样运行;`bash install.sh` 不能用于 Windows)。不要把下载的内容直接交给 shell 执行。安装可能要几分钟。
+   检查:退出码是 0,最后一段输出是一个 JSON 对象,里面有 "ready": true。退出码是 3 时,把它打印的内容给我看(JSON 里的 "fix",或者安装 uv 或 git 的说明),然后停下。
 3. 从文件 ${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path(Windows 上是 %APPDATA%\tutor-any-lecture\cli-path)里读出命令的完整路径,运行 `<这个路径> selftest`。
    检查:退出码是 0。
 4. 在你自己的 skills 文件夹里(例如 ~/.claude/skills/ 或 ~/.codex/skills/)找 tutor-any-lecture/SKILL.md。
    检查:文件存在。不存在的话,重新运行安装脚本,加上 `--agents`,后面写 claude、codex 或 agents(Windows 上是 `-Agents`)。
 ```
 
-有 uv 时,安装脚本用 `uv tool install`;没有时,它在 `~/.tutor-any-lecture/venv`(Windows 上是 `%LOCALAPPDATA%\tutor-any-lecture\venv`)建一个独立的环境。它不往系统 Python 里装任何东西,也不会下载脚本来执行。装好以后,它把命令的完整路径记在 `cli-path` 文件里,把 skill 复制给找到的 agent(`~/.claude`、`~/.codex`、`~/.agents`),再运行 `tutor-any-lecture doctor --json`。加上 `--dry-run`(`-DryRun`)可以只看计划,不做任何改动。
+有 uv 时,安装脚本用 `uv tool install`;没有时,它在 `~/.tutor-any-lecture/venv`(Windows 上是 `%LOCALAPPDATA%\tutor-any-lecture\venv`)建一个独立的环境。它不往系统 Python 里装任何东西,也不会下载脚本来执行。装好以后,它把命令的完整路径记在 `cli-path` 文件里,把 skill 复制给找到的 agent(`~/.claude`、`~/.codex`、`~/.agents`),再运行 `tutor-any-lecture doctor --json`。退出码:0 表示就绪,1 表示失败或被取消,2 表示参数有误,3 表示需要你处理(它会打印该怎么做)。加上 `--dry-run`(`-DryRun`)可以只看计划,不做任何改动;加上 `--cli-only`(`-CliOnly`)只装命令,不复制 skill。
+
+语音识别是附加组件,只有没有字幕的音频或视频才需要。它的下载很大(几百 MB,Apple Silicon 上更大),所以安装脚本默认不装,要装就加 `--with-asr`(`-WithAsr`);以后再带上它重新运行安装脚本也可以。字幕、转写稿和课件不需要它。
 
 **方式四:Claude 网页版上传 ZIP**
 
