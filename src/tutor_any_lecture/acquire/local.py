@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
+import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -16,10 +18,12 @@ from tutor_any_lecture import asr, slides
 from ..ffmpeg import extract_audio, media_duration
 from ..profile import Profile
 from ..source import SourceInfo, sha256_file
-from ..transcript import EmptyTranscript, Health, health
+from ..transcript import AcquireError, EmptyTranscript, Health, health
 from ..unit import UnitPaths
 
-# Every temporary folder the tool makes sits under <system temp folder>/tutor-any-lecture/.
+# The tool's temporary folders sit under one parent in the system temp folder: on POSIX
+# "tutor-any-lecture-<uid>", private to the user (mode 0700); on Windows, where the
+# temp folder already belongs to one user, "tutor-any-lecture".
 TEMP_PARENT = "tutor-any-lecture"
 # A folder under the parent older than this was left by a run that was killed outright.
 STALE_SECONDS = 24 * 3600
@@ -42,23 +46,77 @@ def _sweep_stale(parent: Path) -> None:
             continue
 
 
+def _is_private(path: Path) -> bool:
+    """A real directory (not a symbolic link), owned by this user, writable by no one else."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(info.st_mode)
+        and info.st_uid == os.getuid()
+        and not info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    )
+
+
+def _shared_parent(base: Path) -> Path | None:
+    """The tool's parent under ``base``, created when missing; None when it cannot be trusted.
+
+    Someone else could have put a folder, a link or a file at the POSIX path first: such
+    a path is never used, so it never holds this user's audio and is never swept.
+    """
+    if os.name == "nt":
+        parent = base / TEMP_PARENT
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent
+    parent = base / f"{TEMP_PARENT}-{os.getuid()}"
+    try:
+        parent.mkdir(mode=0o700)
+    except FileExistsError:
+        pass  # checked below, never changed: it may not be ours
+    else:
+        os.chmod(parent, 0o700)  # mkdir's mode is narrowed by the umask; set it exactly
+    return parent if _is_private(parent) else None
+
+
+def _new_run_folder() -> tuple[Path, Path | None]:
+    """A new folder for this run, and the fresh parent to remove with it (None if shared).
+
+    The shared parent is swept of stale folders first. When it cannot be used, the run
+    gets a fresh private parent of its own and sweeps nothing.
+    """
+    base = Path(tempfile.gettempdir())
+    try:
+        parent = _shared_parent(base)
+        if parent is not None:
+            _sweep_stale(parent)
+            return Path(tempfile.mkdtemp(prefix="run-", dir=parent)), None
+    except OSError:
+        pass  # fall back to a fresh parent
+    try:
+        own = Path(tempfile.mkdtemp(prefix=f"{TEMP_PARENT}-", dir=base))
+        return Path(tempfile.mkdtemp(prefix="run-", dir=own)), own
+    except OSError as e:
+        raise AcquireError(f"could not create a temporary folder in {base}: {e}") from e
+
+
 @contextmanager
 def temp_dir():
     """A new folder under the tool's temp parent, removed when the block ends, however it ends.
 
-    Outside the unit and the user's folders. Stale folders of earlier runs are swept first.
-    ``main`` turns SIGTERM into ``SystemExit``, so a stopped command removes it too.
+    Outside the unit and the user's folders. ``main`` turns SIGTERM into ``SystemExit``,
+    so a stopped command removes it too. Raises ``AcquireError`` when no temporary folder
+    can be created.
     """
-    parent = Path(tempfile.gettempdir()) / TEMP_PARENT
-    parent.mkdir(parents=True, exist_ok=True)
-    _sweep_stale(parent)
-    tmp = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
+    tmp, own_parent = _new_run_folder()
     try:
         yield tmp
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         if tmp.exists():
             print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
+        elif own_parent is not None:
+            shutil.rmtree(own_parent, ignore_errors=True)
 
 
 def _refuse_overwrite(unit: Path, force: bool) -> None:

@@ -17,6 +17,7 @@ REQUIRED = ["python", "ffmpeg", "yt_dlp", "config_dir"]
 OPTIONAL = ["js_runtime", "browser", "asr_backend", "asr_model"]
 ASR_FIX = ("Optional: needed only for audio or video without captions. "
            "Run the installer again with --with-asr (Windows: -WithAsr).")
+MODEL_FIX = "Optional: the model downloads once, on the first transcription."
 
 
 def patch_checks(monkeypatch, required, optional=True):
@@ -178,7 +179,7 @@ def test_asr_checks(monkeypatch):
     assert doctor.check_asr_model() == (True, "small")
 
     monkeypatch.setattr(doctor, "_model_cached", lambda backend, model: False)
-    assert doctor.check_asr_model() == (False, "small is not cached")
+    assert doctor.check_asr_model() == (False, "small is not cached", MODEL_FIX)
 
     def missing():
         raise asr.BackendMissing("no ASR backend installed")
@@ -231,7 +232,7 @@ def test_uninstalled_backend_package_keeps_not_cached_wording(monkeypatch):
     monkeypatch.setattr(asr, "select_model", lambda backend: "small")
     monkeypatch.setattr(importlib, "import_module", not_installed)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs: None)
-    assert doctor.check_asr_model() == (False, "small is not cached")
+    assert doctor.check_asr_model() == (False, "small is not cached", MODEL_FIX)
 
 
 @pytest.mark.parametrize("plat", ["darwin", "linux", "win32"])
@@ -295,3 +296,19 @@ def test_ready_without_asr(monkeypatch, tmp_cfg):
         assert by_name[name]["ok"] is False
         assert by_name[name]["fix"] == ASR_FIX
     assert "--with-asr" in by_name["asr_backend"]["detail"]
+
+
+def test_model_fix_text_depends_on_the_backend(monkeypatch, tmp_cfg):
+    monkeypatch.setattr(doctor, "CHECKS", [c for c in doctor.CHECKS if c.name in ("asr_backend", "asr_model")])
+    # A backend is installed and only its model is missing: the model downloads on first use.
+    monkeypatch.setattr(asr, "_installed", lambda module: module == "faster_whisper")
+    monkeypatch.setattr(asr, "_cuda_devices", lambda: 0)
+    monkeypatch.setattr(asr, "model_cached", lambda backend, model: False)
+    by_name = {c["name"]: c for c in run_doctor()["checks"]}
+    assert by_name["asr_backend"]["ok"] is True and by_name["asr_backend"]["fix"] == ""
+    assert by_name["asr_model"] == {"name": "asr_model", "ok": False,
+                                    "detail": "small is not cached", "fix": MODEL_FIX}
+    # No backend at all: both entries point at the installer's --with-asr.
+    monkeypatch.setattr(asr, "_installed", lambda module: False)
+    by_name = {c["name"]: c for c in run_doctor()["checks"]}
+    assert [by_name[n]["fix"] for n in ("asr_backend", "asr_model")] == [ASR_FIX, ASR_FIX]

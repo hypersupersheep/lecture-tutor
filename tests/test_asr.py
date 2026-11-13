@@ -53,15 +53,17 @@ def _long_boom(audio, model, **kwargs):
     raise RuntimeError("\n".join(f"detail {i}" for i in range(10)))
 
 
-def _logging_backend(audio, model, log, fail_on=None, sleep_on=None, **kwargs):
-    """Appends "device model compute_type" to ``log``; fails or sleeps on the device named."""
+def _logging_backend(audio, model, log, fail_on=None, sleep_on=None, die_on=None, **kwargs):
+    """Appends "device model compute_type" to ``log``; fails, sleeps or dies on the device named."""
     device = kwargs.get("device")
     with open(log, "a", encoding="utf-8", newline="\n") as f:
         f.write(f"{device} {model} {kwargs.get('compute_type')}\n")
+    if die_on == "any":
+        os._exit(7)   # no reply at all, as when a native library crashes the process
     if fail_on == "any" or (fail_on is not None and fail_on == device):
         raise RuntimeError(f"{device} failed\nsecond line")
     if sleep_on is not None and sleep_on == device:
-        time.sleep(5)
+        time.sleep(30)   # far past the 5 s the budget test allows, however slow the start-ups
     return Transcript([Segment(0.0, 1.0, f"from {device}")], None)
 
 
@@ -388,12 +390,13 @@ def test_mlx_and_cpu_devices_are_reported(monkeypatch, tmp_path):
     assert transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster").device == "cpu"
 
 
-def test_cuda_dying_child_retries_on_cpu(monkeypatch, capfd):
-    monkeypatch.setitem(asr.BACKENDS, "faster", _dying_backend)
-    monkeypatch.setattr(asr, "_installed", lambda module: True)
-    monkeypatch.setattr(asr, "_cuda_devices", lambda: 1)
+def test_cuda_dying_child_retries_on_cpu(monkeypatch, tmp_path, capfd):
+    # install_logging_backend also fakes the cache lookup, so the machine's cache plays no part.
+    calls = install_logging_backend(monkeypatch, tmp_path, "faster", cuda=True, die_on="any")
     with pytest.raises(AcquireError, match="without a result"):
         transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    # The second attempt ran, with the CPU's device, model and compute type.
+    assert calls() == [("cuda", "large-v3-turbo", "float16"), ("cpu", "small", "int8")]
     err = capfd.readouterr().err
     assert "warning: GPU transcription failed (the ASR process exited without a result (exit code 7)); " \
            "retrying on the CPU" in err

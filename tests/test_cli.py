@@ -181,6 +181,26 @@ def test_sigterm_handler_is_exit_143(monkeypatch):
     assert signal.getsignal(signal.SIGTERM) is before   # main puts the old handler back
 
 
+def test_one_stop_signal_ignores_every_stop_signal(monkeypatch):
+    names = [n for n in ("SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, n)]
+    before = {n: signal.getsignal(getattr(signal, n)) for n in names}
+    during = {}
+
+    def stopped(args):
+        try:
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        finally:
+            # Where the cleanup runs: a second signal of any of these kinds is ignored.
+            during.update({n: signal.getsignal(getattr(signal, n)) for n in names})
+
+    monkeypatch.setattr(cli, "_cmd_profile_show", stopped)
+    with pytest.raises(SystemExit) as exc:
+        main(["profile", "show"])
+    assert exc.value.code == 143
+    assert len(names) >= 2 and during == {n: signal.SIG_IGN for n in names}
+    assert {n: signal.getsignal(getattr(signal, n)) for n in names} == before   # put back afterwards
+
+
 def test_handlers_only_in_the_main_thread(monkeypatch):
     before = signal.getsignal(signal.SIGTERM)
     seen, codes = [], []

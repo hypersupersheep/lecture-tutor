@@ -586,25 +586,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# The signals that stop a command; SIGHUP exists on POSIX, SIGBREAK on Windows.
+_STOP_SIGNALS = ("SIGTERM", "SIGHUP", "SIGBREAK")
+
+
 def _stop(signum, frame) -> None:
     """Signal handler: end the command through ``SystemExit``, so every ``finally`` runs."""
-    try:
-        signal.signal(signum, signal.SIG_IGN)  # a second signal must not cut the cleanup short
-    except (OSError, ValueError):
-        pass
+    # Every stop signal this handler serves is ignored from here on, not only this one: a
+    # second signal of any kind must not cut the cleanup short. ``main`` puts the old
+    # handlers back once the cleanup is done.
+    for name in _STOP_SIGNALS:
+        other = getattr(signal, name, None)
+        if other is None:
+            continue
+        try:
+            if signal.getsignal(other) is _stop:
+                signal.signal(other, signal.SIG_IGN)
+        except (OSError, ValueError):
+            pass
     raise SystemExit(EXIT_STOPPED)
 
 
 def _install_stop_handlers() -> dict:
     """Route the stop signals to ``_stop``; returns the handlers they replaced.
 
-    Only in the main thread, the one place Python allows it. SIGHUP exists on POSIX,
-    SIGBREAK on Windows.
+    Only in the main thread, the one place Python allows it.
     """
     replaced: dict = {}
     if threading.current_thread() is not threading.main_thread():
         return replaced
-    for name in ("SIGTERM", "SIGHUP", "SIGBREAK"):
+    for name in _STOP_SIGNALS:
         signum = getattr(signal, name, None)
         if signum is None:
             continue

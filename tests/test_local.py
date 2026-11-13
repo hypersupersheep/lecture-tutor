@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -18,13 +19,20 @@ from tutor_any_lecture.cli import main
 from tutor_any_lecture.ffmpeg import ffmpeg_exe
 from tutor_any_lecture.profile import Profile
 from tutor_any_lecture.source import SourceInfo, sha256_file
-from tutor_any_lecture.transcript import EmptyTranscript, Segment, Transcript
+from tutor_any_lecture.transcript import AcquireError, EmptyTranscript, Segment, Transcript
 from tutor_any_lecture.unit import UnitPaths
 
 
 def _boom(audio, model, **kwargs):
     # Module-level, so the spawn child can unpickle it.
     raise RuntimeError("boom")
+
+
+def temp_parent(base):
+    """Local helper: the tool's temp parent under ``base``, as this OS names it."""
+    if sys.platform == "win32":
+        return Path(base) / "tutor-any-lecture"
+    return Path(base) / f"tutor-any-lecture-{os.getuid()}"
 
 
 def make_tone(folder):
@@ -297,7 +305,7 @@ def test_sigterm_runs_cleanup(tmp_path):
         line = proc.stdout.readline().decode("utf-8", errors="replace").strip()
         assert line, proc.stderr.read().decode("utf-8", errors="replace")
         folder = Path(line)
-        assert folder.parent.name == "tutor-any-lecture" and (folder / "audio.wav").exists()
+        assert folder.parent == temp_parent(tmp_path) and (folder / "audio.wav").exists()
         proc.send_signal(signal.SIGTERM)
         out, err = proc.communicate(timeout=30)
         assert proc.returncode == 143, err.decode("utf-8", errors="replace")
@@ -311,7 +319,7 @@ def test_sigterm_runs_cleanup(tmp_path):
 
 def test_stale_temp_folders_are_swept(monkeypatch, tmp_path):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    parent = tmp_path / "tutor-any-lecture"
+    parent = temp_parent(tmp_path)
     old, recent = parent / "old-run", parent / "recent-run"
     now = time.time()
     for folder, age in ((old, 2 * 86400), (recent, 3600)):
@@ -334,7 +342,7 @@ def test_stale_temp_folders_are_swept(monkeypatch, tmp_path):
 
 def test_sweep_errors_are_ignored(monkeypatch, tmp_path):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    old = tmp_path / "tutor-any-lecture" / "old-run"
+    old = temp_parent(tmp_path) / "old-run"
     old.mkdir(parents=True)
     os.utime(old, (time.time() - 2 * 86400,) * 2)
 
@@ -349,3 +357,170 @@ def test_sweep_errors_are_ignored(monkeypatch, tmp_path):
     with local.temp_dir() as tmp:
         assert tmp.is_dir()
     assert old.exists() and not tmp.exists()
+
+
+def tree(path):
+    """Local helper: every path under ``path`` (links not followed), with its kind."""
+    found = []
+    for root, dirs, files in os.walk(path):
+        found += [(os.path.relpath(os.path.join(root, n), path), "dir") for n in dirs]
+        found += [(os.path.relpath(os.path.join(root, n), path), "file") for n in files]
+    return sorted(found)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX ownership and modes")
+def test_temp_parent_is_private_to_the_user(monkeypatch, tmp_path):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    # A umask that would leave the folder unwritable to its owner: the mode is set exactly.
+    old_umask = os.umask(0o277)
+    try:
+        with local.temp_dir() as tmp:
+            parent = tmp.parent
+            assert tmp.is_dir()
+    finally:
+        os.umask(old_umask)
+    assert parent == tmp_path / f"tutor-any-lecture-{os.getuid()}"
+    assert parent.name.endswith(str(os.getuid()))
+    assert stat.S_IMODE(os.lstat(parent).st_mode) == 0o700
+    assert not tmp.exists() and parent.is_dir()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX ownership and modes")
+@pytest.mark.parametrize("kind", ["symlink", "mode-0777", "file"])
+def test_untrusted_temp_parent_is_not_used(monkeypatch, tmp_path, kind):
+    base = tmp_path / "tmp"
+    base.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(base))
+    expected = temp_parent(base)
+    stale_age = time.time() - 2 * 86400
+    # What the untrusted path leads to holds a stale run folder that a sweep would remove.
+    if kind == "symlink":
+        watched = tmp_path / "elsewhere"
+        watched.mkdir()
+        expected.symlink_to(watched, target_is_directory=True)
+    elif kind == "mode-0777":
+        watched = expected
+        watched.mkdir()
+        os.chmod(watched, 0o777)
+    else:
+        watched = None
+        expected.write_bytes(b"not a folder")
+    if watched is not None:
+        (watched / "old-run").mkdir()
+        (watched / "old-run" / "audio.wav").write_bytes(b"audio")
+        os.utime(watched / "old-run", (stale_age, stale_age))
+        before = tree(watched)
+    lstat_before = os.lstat(expected)
+
+    src = make_tone(tmp_path / "课程 资料")
+    fake = install_fake_asr(monkeypatch)
+    h = acquire_local(src, tmp_path / "课程 资料" / "第1周", Profile(), False)
+    assert h.ok
+    run_folder = fake.calls[0]["audio"].parent
+    assert fake.calls[0]["existed"]
+    # The run's folder was somewhere else: a fresh private parent in the same temp folder.
+    assert run_folder.parent.parent == base and run_folder.parent != expected
+    if watched is not None:
+        assert tree(watched) == before          # nothing created, nothing swept
+    lstat_after = os.lstat(expected)
+    assert (lstat_after.st_mode, lstat_after.st_ino) == (lstat_before.st_mode, lstat_before.st_ino)
+    if kind == "file":
+        assert expected.read_bytes() == b"not a folder"
+    # The fresh parent went with the run's folder: only the untrusted path is left.
+    assert [p.name for p in base.iterdir()] == [expected.name]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX folder creation")
+def test_no_temp_folder_is_a_clean_error(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    base = tmp_path / "tmp"
+    base.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(base))
+    fake = install_fake_asr(monkeypatch)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    with monkeypatch.context() as m:
+        m.setattr(os, "mkdir", refuse)   # Path.mkdir and tempfile.mkdtemp both create through it
+        with pytest.raises(AcquireError) as exc:
+            acquire_local(src, unit, Profile(), False)
+    assert str(exc.value).startswith("could not create a temporary folder")
+    assert str(exc.value).startswith(f"could not create a temporary folder in {base}: ")
+    assert not fake.calls and list(base.iterdir()) == []
+
+
+# A child process: runs the ASR child-process helper with a slow fake backend under
+# main's signal handling. The backend writes its own process id to the "audio" path.
+ASR_CHILD_SCRIPT = """
+import os, sys, time
+from pathlib import Path
+from tutor_any_lecture import asr, cli
+from tutor_any_lecture.transcript import Segment, Transcript
+
+
+def slow(audio, model, **kwargs):
+    Path(audio).write_text(str(os.getpid()), encoding="utf-8")
+    time.sleep(120)
+    return Transcript([Segment(0.0, 1.0, "late")], None)
+
+
+def run(args):
+    asr.BACKENDS["slow"] = slow
+    asr.transcribe(Path(sys.argv[1]), None, "", budget_minutes=5, backend="slow")
+    return 0
+
+
+if __name__ == "__main__":   # the spawn child imports this file too; only the parent runs main
+    cli._cmd_profile_show = run
+    sys.exit(cli.main(["profile", "show"]))
+"""
+
+
+def alive(pid):
+    """Local helper: whether a process with this id still exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_sigterm_ends_a_running_asr_child(tmp_path):
+    script = tmp_path / "run_slow_asr.py"
+    script.write_text(ASR_CHILD_SCRIPT, encoding="utf-8")
+    pid_file = tmp_path / "child.pid"
+    proc = subprocess.Popen([sys.executable, str(script), str(pid_file)], cwd=tmp_path,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    child = None
+    try:
+        deadline = time.monotonic() + 60
+        while not (pid_file.exists() and pid_file.read_text(encoding="utf-8").strip()):
+            assert proc.poll() is None, proc.stderr.read().decode("utf-8", errors="replace")
+            assert time.monotonic() < deadline, "the ASR child never started"
+            time.sleep(0.05)
+        child = int(pid_file.read_text(encoding="utf-8"))
+        assert child != proc.pid and alive(child)
+        # Every child of the process at this moment: the ASR child, and any helper it runs.
+        children = {child}
+        if shutil.which("pgrep"):
+            listed = subprocess.run(["pgrep", "-P", str(proc.pid)], capture_output=True, text=True)
+            children |= {int(p) for p in listed.stdout.split()}
+        proc.send_signal(signal.SIGTERM)
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 143, err.decode("utf-8", errors="replace")
+        # An ended child is reaped by its parent, or by init once the parent is gone.
+        deadline = time.monotonic() + 10
+        while any(alive(pid) for pid in children) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert [pid for pid in children if alive(pid)] == []
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+        if child is not None and alive(child):
+            os.kill(child, signal.SIGKILL)

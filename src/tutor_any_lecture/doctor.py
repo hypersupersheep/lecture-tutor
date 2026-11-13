@@ -182,7 +182,7 @@ def check_browser() -> tuple[bool, str]:
     return False, "not found"
 
 
-def check_asr_model() -> tuple[bool, str]:
+def check_asr_model() -> tuple:
     from . import asr
 
     backend = asr.select_backend()
@@ -193,7 +193,8 @@ def check_asr_model() -> tuple[bool, str]:
         return False, str(e), f"Optional: reinstall {e.package}"
     if cached:
         return True, model
-    return False, f"{model} is not cached"
+    # A backend is installed; only its model is missing, and that needs no installer.
+    return False, f"{model} is not cached", _MODEL_FIX
 
 
 # Speech recognition is an optional extra: a machine without it is still ready.
@@ -201,6 +202,7 @@ _ASR_FIX = (
     "Optional: needed only for audio or video without captions. "
     "Run the installer again with --with-asr (Windows: -WithAsr)."
 )
+_MODEL_FIX = "Optional: the model downloads once, on the first transcription."
 
 CHECKS: list[Check] = [
     Check("python", True, check_python,
