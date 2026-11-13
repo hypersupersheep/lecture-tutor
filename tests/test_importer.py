@@ -183,3 +183,11 @@ def test_cli_import_json_without_end_is_error_json(tmp_path, capsys):
     assert code == 1
     assert_error_json(out)
     assert not UnitPaths(unit).transcript.exists()
+
+
+def test_cli_import_missing_file_is_error_json(tmp_path, capsys):
+    unit = tmp_path / "u"
+    code = main(["acquire", "import", "--file", str(tmp_path / "missing.srt"), "--unit", str(unit)])
+    assert code == 1
+    assert_error_json(capsys.readouterr().out)
+    assert not UnitPaths(unit).transcript.exists()

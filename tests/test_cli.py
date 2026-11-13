@@ -214,3 +214,59 @@ def test_handlers_only_in_the_main_thread(monkeypatch):
     worker.start()
     worker.join()
     assert codes == [0] and seen == [before]
+
+
+# ---- paths and stdout JSON (Task 25) ------------------------------------------
+
+
+def point_home_at(monkeypatch, home):
+    """Local helper: ``~`` expands to ``home`` on POSIX (HOME) and on Windows (USERPROFILE)."""
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
+def test_tilde_in_unit_is_expanded(tmp_cfg, tmp_path, monkeypatch, capsys):
+    from conftest import fx
+    from tutor_any_lecture.unit import UnitPaths
+
+    point_home_at(monkeypatch, tmp_path)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    argv = ["acquire", "import", "--file", str(fx("transcripts", "cues.vtt")), "--unit", "~/x/u"]
+    assert main(argv) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    assert UnitPaths(tmp_path / "x" / "u").transcript.exists()
+    assert not (cwd / "~").exists()
+
+
+def test_path_arguments_are_absolute(tmp_path, monkeypatch):
+    point_home_at(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args(["acquire", "route", "--folder", "rel/f", "--unit", "~/u"])
+    assert Path(args.folder) == tmp_path / "rel" / "f" and Path(args.folder).is_absolute()
+    assert Path(args.unit) == tmp_path / "u"
+
+
+def test_profile_show_prints_an_absolute_workspace(tmp_cfg, tmp_path, monkeypatch, capsys):
+    from tutor_any_lecture.config import config_dir
+
+    point_home_at(monkeypatch, tmp_path)
+    assert main(["profile", "set", "workspace", "~/ws"]) == 0
+    capsys.readouterr()
+    assert main(["profile", "show"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["workspace"] == str(tmp_path / "ws") and Path(shown["workspace"]).is_absolute()
+    assert "workspace: ~/ws" in (config_dir() / "profile.yaml").read_text(encoding="utf-8")
+
+
+def test_stdout_json_is_ascii(tmp_path, capsys):
+    folder = tmp_path / "课程 资料"
+    folder.mkdir()
+    (folder / "a.pdf").write_bytes(b"")
+    assert main(["acquire", "route", "--folder", str(folder), "--unit", str(tmp_path / "unit")]) == 0
+    out = capsys.readouterr().out
+    assert out.isascii() and len(out.splitlines()) == 1
+    plan = json.loads(out)
+    assert "课程 资料" in plan["steps"][0]["argv"][3]
+    assert plan["files"]["slides"] == [str(folder.resolve() / "a.pdf")]
