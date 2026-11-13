@@ -56,7 +56,7 @@ plan.json never holds "auto". Resolve each value when you write it:
 | goal | the note | quiz and cards |
 |---|---|---|
 | deep (default) | the whole lecture in order, every slide explained or listed as not covered; 44–89 CJK characters / 26–53 words per minute | full sessions over the tracked and practice items; up to 25 core cards |
-| exam | weighted to what will be examined: definitions, results, methods, the lecturer's exam hints; 30–70 / 18–42 per minute | exam-style apply items first; up to 25 core cards |
+| exam | weighted to what will be examined: definitions, results, methods, the lecturer's exam hints; 30–70 / 18–42 per minute | exam-style items first, modelled on past papers when the learner provides them; interleaved review and more practice items; up to 25 core cards |
 | quick | the main line only; 10–25 / 6–15 per minute | 5–8 items per session; up to 10 core cards |
 
 Every goal keeps the citations and the faithfulness rules; goal changes length and coverage, never inserts extra sections into the lecture prose. items.json carries A, B and C for every tracked concept under every goal.
