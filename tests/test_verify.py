@@ -365,6 +365,47 @@ def test_bundled_sample_passes_quote_source(tmp_path):
     assert entry(r, "citations")["status"] in ("PASS", "WARN")
 
 
+def test_quote_parts_match_whole_words(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 178.0, 180.0, "The interest rate is now fixed.")
+    append_to_note(u, '\n\nThe lecturer said "interest rate is now fixed" (2:59).\n')
+    assert entry(run_verify(u), "citations") == {"name": "citations", "status": "PASS", "details": []}
+    append_to_note(u, '\n\nAn invented quote reads "rest rate is now fix" (2:59).\n')
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "FAIL"
+    assert quote_source_details(r) == [
+        "quote 'rest rate is now fix' cited (2:59) is not in the transcript or the slides"
+    ]
+
+
+def test_quote_with_inline_code_matches(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 178.0, 180.0, "Use np.mean to average the column.")
+    append_to_note(u, '\n\nThe tip was "use `np.mean` to average the column" (2:59).\n')
+    assert entry(run_verify(u), "citations") == {"name": "citations", "status": "PASS", "details": []}
+
+
+def test_quote_with_markdown_link_matches(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    add_segment(u, 178.0, 180.0, "Read the chapter on compound growth before the next lecture.")
+    append_to_note(
+        u,
+        '\n\nThe homework: "read the [chapter on compound growth](https://example.org/ch3) '
+        'before the next lecture" (2:59).\n',
+    )
+    assert entry(run_verify(u), "citations") == {"name": "citations", "status": "PASS", "details": []}
+
+
+def test_quote_in_list_item_with_citation_on_next_line_is_checked(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(u, '\n\n- The lecturer warned that "banks always round the rate down"\n  (slide 2, 2:40).\n')
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "FAIL"
+    assert quote_source_details(r) == [
+        "quote 'banks always round the rate down' cited (slide 2, 2:40) is not in the transcript or the slides"
+    ]
+
+
 # ---------------------------------------------------------------- prose-only numbers and terms (Task 23)
 
 

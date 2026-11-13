@@ -44,3 +44,15 @@ def test_resolve_uses_a_range_end_and_a_slide_range_maximum():
 def test_full_width_comma_separates_citations():
     got = [(c.kind, c.start, c.end) for c in parse("(slide 1，0:20)")]
     assert got == [("slide", "1", None), ("time", 20.0, None)]
+
+
+def test_callout_citation_is_counted_once():
+    plain = "Rounding (slide 9)\nThe bank rounds down (slide 9, 0:30).\n"
+    callout = "> [!WARNING] Rounding (slide 9)\n> The bank rounds down (slide 9, 0:30).\n"
+    for text in (plain, callout):
+        assert [(c.kind, c.raw, c.line) for c in parse(text)] == [
+            ("slide", "(slide 9)", 1),
+            ("slide", "(slide 9, 0:30)", 2),
+            ("time", "(slide 9, 0:30)", 2),
+        ]
+        assert resolve(parse(text), max_slide=3, duration=None) == ["slide 9 > 3", "slide 9 > 3"]

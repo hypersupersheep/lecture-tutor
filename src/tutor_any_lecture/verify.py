@@ -25,7 +25,16 @@ from .slides import load_pages, max_label
 from .source import SourceInfo
 
 # verify removes code exactly as check_note and units() do.
-from .textstats import BRACKET_MATH_RE, CJK_RE, DISPLAY_MATH_RE, INLINE_MATH_RE, PAREN_MATH_RE, strip_code
+from .textstats import (
+    BRACKET_MATH_RE,
+    CJK_RE,
+    DISPLAY_MATH_RE,
+    INLINE_CODE_RE,
+    INLINE_MATH_RE,
+    MD_LINK_URL_RE,
+    PAREN_MATH_RE,
+    strip_code,
+)
 from .transcript import Transcript
 from .unit import UnitPaths
 
@@ -56,6 +65,10 @@ LATIN_WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ɏḀ-ỿ]+")
 EDITORIAL_RE = re.compile(r"…|\.\.\.|\[[^\]\n]*\]")
 NOT_LETTER_OR_DIGIT_RE = re.compile(r"[\W_]+")
 CJK_SPACE_RE = re.compile(rf" (?={CJK_RE.pattern})|(?<={CJK_RE.pattern}) ")
+# In normalised text a word ends at a space, at a CJK character or at either end.
+_CJK_CHARS = CJK_RE.pattern[1:-1]
+WORD_EDGE_BEFORE = rf"(?<![^ {_CJK_CHARS}])"
+WORD_EDGE_AFTER = rf"(?![^ {_CJK_CHARS}])"
 QUOTE_WINDOW_S = 60
 QUOTE_MIN_WORDS = 3
 QUOTE_MIN_CJK_CHARS = 6
@@ -194,9 +207,15 @@ def _joined(texts) -> tuple[str, list[int]]:
 
 
 def _quote_parts(quote: str) -> list[str]:
-    """The normalised parts between editorial marks, without the parts too short to check."""
+    """The normalised parts between editorial marks, without the parts too short to check.
+
+    Inline code keeps its text (only the backticks go) and a Markdown link is read as its
+    text: neither is an editorial mark.
+    """
+    text = INLINE_CODE_RE.sub(lambda m: NOT_LETTER_OR_DIGIT_RE.sub(" ", m.group(0).strip("`")), quote)
+    text = MD_LINK_URL_RE.sub(lambda m: m.group(1).lstrip("!")[1:-1], text)
     parts = []
-    for raw in EDITORIAL_RE.split(quote):
+    for raw in EDITORIAL_RE.split(text):
         part = _quote_norm(raw)
         if CJK_RE.search(part):
             long_enough = len(part.replace(" ", "")) >= QUOTE_MIN_CJK_CHARS
@@ -205,6 +224,18 @@ def _quote_parts(quote: str) -> list[str]:
         if long_enough:
             parts.append(part)
     return parts
+
+
+def _part_at(part: str, text: str) -> int:
+    """Where ``part`` starts in the normalised ``text``, or -1.
+
+    A part in a CJK script may start anywhere; any other part matches only as a run of
+    whole words, so "rest rate is now fix" is not in "the interest rate is now fixed".
+    """
+    if CJK_RE.search(part):
+        return text.find(part)
+    m = re.search(WORD_EDGE_BEFORE + re.escape(part) + WORD_EDGE_AFTER, text)
+    return m.start() if m else -1
 
 
 class _QuoteSources:
@@ -232,11 +263,11 @@ class _QuoteSources:
 
     def find(self, part: str) -> str | None:
         """Where ``part`` is: "at m:ss" in the transcript, else "on slide N", else None."""
-        pos = self.all_text.find(part)
+        pos = _part_at(part, self.all_text)
         if pos >= 0:
             return f"at {format_seconds(self.segments[bisect_right(self.starts, pos) - 1].start)}"
         for n, text in self.slide_texts:
-            if part in text:
+            if _part_at(part, text) >= 0:
                 return f"on slide {n}"
         return None
 
@@ -251,7 +282,7 @@ def _check_quote_source(md: str, transcript, pages) -> CheckResult:
         places = [t for t in (sources.cited(c) for c in cits) if t is not None]
         if not parts or not places:
             continue  # nothing to check, or only times in a unit without a transcript
-        missing = [part for part in parts if not any(part in place for place in places)]
+        missing = [part for part in parts if not any(_part_at(part, place) >= 0 for place in places)]
         if not missing:
             continue
         shown = quote if len(quote) <= QUOTE_SHOWN_CHARS else quote[:QUOTE_SHOWN_CHARS] + "…"

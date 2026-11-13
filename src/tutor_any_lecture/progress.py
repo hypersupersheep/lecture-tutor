@@ -26,6 +26,10 @@ REVIEWS = (("d1", 1, True), ("d7", 7, False), ("d21", 21, True))
 # The order of entries due on the same day: the post quiz first, then the reviews.
 DUE_ORDER = {"post": 0, **{phase: n for n, (phase, _, _) in enumerate(REVIEWS, start=1)}}
 STRIP_COLUMNS = 21
+PAIRED_NOTE = (
+    "Gain and retention compare only the concepts attempted in both phases, "
+    "and the means beside them are over those concepts."
+)
 STRIP_MARKS = (("pre", "○"), ("post", "●"), ("d7", "◆"))  # later marks win a shared column
 
 
@@ -154,17 +158,35 @@ def paired_scores(attempts, first: str, second: str) -> dict[str, dict[str, floa
     return out
 
 
+def _gain_means(scores) -> tuple[float, float] | None:
+    """(mean pre, mean post) over the units with pre and post and pre < 1; None when there is none."""
+    units = [s for s in scores.values() if "pre" in s and "post" in s and s["pre"] < 1]
+    if not units:
+        return None
+    return _mean(s["pre"] for s in units), _mean(s["post"] for s in units)
+
+
 def normalized_gain(scores) -> float | None:
     """(mean post - mean pre) / (1 - mean pre) over the units with pre and post and pre < 1.
 
     ``scores`` is ``paired_scores(attempts, "pre", "post")``, so each unit compares the same concepts.
     """
-    units = [s for s in scores.values() if "pre" in s and "post" in s and s["pre"] < 1]
+    means = _gain_means(scores)
+    if means is None:
+        return None
+    pre, post = means
+    return (post - pre) / (1 - pre)
+
+
+def _retention_means(scores) -> tuple[float, float] | None:
+    """(mean post, mean d7) over the units with both; None when none qualifies or the mean post is 0."""
+    units = [s for s in scores.values() if "post" in s and "d7" in s]
     if not units:
         return None
-    pre = _mean(s["pre"] for s in units)
     post = _mean(s["post"] for s in units)
-    return (post - pre) / (1 - pre)
+    if post == 0:
+        return None
+    return post, _mean(s["d7"] for s in units)
 
 
 def retention(scores) -> float | None:
@@ -172,13 +194,11 @@ def retention(scores) -> float | None:
 
     ``scores`` is ``paired_scores(attempts, "post", "d7")``, so each unit compares the same concepts.
     """
-    units = [s for s in scores.values() if "post" in s and "d7" in s]
-    if not units:
+    means = _retention_means(scores)
+    if means is None:
         return None
-    post = _mean(s["post"] for s in units)
-    if post == 0:
-        return None
-    return _mean(s["d7"] for s in units) / post
+    post, d7 = means
+    return d7 / post
 
 
 def _first_days(attempts, phase: str) -> dict[str, date]:
@@ -247,29 +267,56 @@ def _fence(lines: list[str]) -> str:
 
 
 def _headline(scores: dict[str, dict[str, float]], tracked: list[str], gains, retained) -> str:
+    """One line. The gain stands beside the pre and post means it was computed from, the
+    retention beside its post and day-7 means; a phase in neither shows the mean of every attempt.
+    """
     if not tracked:
         return "No tracked attempts yet."
-    parts = []
-    for phase in TRACKED_PHASES:
+    segments: list[tuple[int, str]] = []  # (index of the first phase, text), joined in phase order
+    covered: set[str] = set()
+    gain_means = _gain_means(gains)
+    if gain_means is not None:
+        pre, post = gain_means
+        segments.append((0, f"pre {_fmt(pre)} → post {_fmt(post)}, normalized gain {_fmt(normalized_gain(gains))}"))
+        covered |= {"pre", "post"}
+    retention_means = _retention_means(retained)
+    if retention_means is not None:
+        post, d7 = retention_means
+        segments.append((1, f"post {_fmt(post)} → day 7 {_fmt(d7)}, retention {_fmt(retention(retained))}"))
+        covered |= {"post", "d7"}
+    raw = []
+    for k, phase in enumerate(TRACKED_PHASES):
         means = [scores[u][phase] for u in tracked if phase in scores[u]]
-        if means:
-            parts.append(f"{HEADLINE_LABELS[phase]} {_fmt(_mean(means))}")
-    line = f"Across {len(tracked)} units: " + " → ".join(parts)
-    gain = normalized_gain(gains)
-    if gain is not None:
-        line += f"; normalized gain {_fmt(gain)}"
-    ret = retention(retained)
-    if ret is not None:
-        line += f"; retention {_fmt(ret)}"
-    return line + "."
+        if means and phase not in covered:
+            raw.append((k, f"{HEADLINE_LABELS[phase]} {_fmt(_mean(means))}"))
+    if raw:
+        segments.append((raw[0][0], " → ".join(text for _, text in raw)))
+    segments.sort(key=lambda seg: seg[0])
+    return f"Across {len(tracked)} units: " + "; ".join(text for _, text in segments) + "."
+
+
+def _pair(first: float | None, second: float | None) -> str:
+    return f"{_fmt(first)} → {_fmt(second)}"
 
 
 def _unit_row(unit: str, s: dict[str, float], gains, retained) -> str:
-    """One table row: the phase means, then gain and retention over the paired concepts."""
-    pre, post, d7 = s.get("pre"), s.get("post"), s.get("d7")
-    gain = normalized_gain({unit: gains[unit]}) if unit in gains else None
-    ret = retention({unit: retained[unit]}) if unit in retained else None
-    cells = [unit.replace("|", "\\|"), *(_fmt(x) for x in (pre, post, d7, gain, ret))]
+    """One table row: pre → post, gain, post → day 7, retention.
+
+    Where a unit has concepts attempted in both phases of a pair, the pair shows their means
+    and the gain or retention beside it is computed from them; otherwise it shows the mean of
+    every attempt in each phase, and the gain or retention is missing.
+    """
+    if unit in gains:
+        pre_post = _pair(gains[unit]["pre"], gains[unit]["post"])
+        gain = normalized_gain({unit: gains[unit]})
+    else:
+        pre_post, gain = _pair(s.get("pre"), s.get("post")), None
+    if unit in retained:
+        post_d7 = _pair(retained[unit]["post"], retained[unit]["d7"])
+        ret = retention({unit: retained[unit]})
+    else:
+        post_d7, ret = _pair(s.get("post"), s.get("d7")), None
+    cells = [unit.replace("|", "\\|"), pre_post, _fmt(gain), post_d7, _fmt(ret)]
     return "| " + " | ".join(cells) + " |"
 
 
@@ -291,7 +338,7 @@ def render_progress(course: str, workspace: Path, today: date) -> Path:
     A course with no log raises FileNotFoundError and writes nothing.
     """
     if not _course_file(workspace, course, ".jsonl").exists():
-        raise FileNotFoundError(f"no progress log for course {course!r}")
+        raise FileNotFoundError(f"no progress log for course '{course}'")
     attempts = load_attempts(course, workspace)
     scores = unit_scores(attempts)
     gains = paired_scores(attempts, "pre", "post")
@@ -300,12 +347,13 @@ def render_progress(course: str, workspace: Path, today: date) -> Path:
 
     blocks = [f"# Progress — {course}", _headline(scores, tracked, gains, retained)]
     if tracked:
-        table = ["| unit | pre | post | d7 | gain | retention |", "|---|---|---|---|---|---|"]
+        table = ["| unit | pre → post | gain | post → day 7 | retention |", "|---|---|---|---|---|"]
         table += [_unit_row(u, scores[u], gains, retained) for u in tracked]
         strips = [f"{_strip(*(scores[u].get(p) for p in TRACKED_PHASES))}  {u}" for u in tracked]
         blocks += [
             "## Units",
             "\n".join(table),
+            PAIRED_NOTE,
             "Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7.",
             _fence(strips),
             "## By concept",

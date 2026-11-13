@@ -179,7 +179,7 @@ def test_render_headline(tmp_path):
     write_attempts(tmp_path)
     p = render_progress("C", tmp_path, date(2026, 11, 27))
     assert p.read_text(encoding="utf-8").splitlines()[2].startswith(
-        "Across 1 units: pre 0.20 → post 0.90 → day 7 0.70"
+        "Across 1 units: pre 0.20 → post 0.90, normalized gain 0.88"
     )
 
 
@@ -190,9 +190,11 @@ def test_render_page_content(tmp_path):
     assert p == tmp_path / "progress" / "C.md"
     lines = p.read_text(encoding="utf-8").splitlines()
     assert lines[:2] == ["# Progress — C", ""]
-    assert lines[2] == "Across 1 units: pre 0.20 → post 0.90 → day 7 0.70; normalized gain 0.88; retention 0.78."
-    assert "| unit | pre | post | d7 | gain | retention |" in lines
-    assert "| u1 | 0.20 | 0.90 | 0.70 | 0.88 | 0.78 |" in lines
+    assert lines[2] == (
+        "Across 1 units: pre 0.20 → post 0.90, normalized gain 0.88; post 0.90 → day 7 0.70, retention 0.78."
+    )
+    assert "| unit | pre → post | gain | post → day 7 | retention |" in lines
+    assert "| u1 | 0.20 → 0.90 | 0.88 | 0.90 → 0.70 | 0.78 |" in lines
     assert "····○·········◆···●··  u1" in lines
     by_concept = lines[lines.index("## By concept"):lines.index("## Due today")]
     assert [x for x in by_concept if x.startswith(("○", "●", "◆", "·"))] == [
@@ -209,8 +211,8 @@ def test_render_page_content(tmp_path):
 def test_headline_omits_missing_parts(tmp_path):
     write_attempts(tmp_path, mk(unit="u1", pre=[0, 0, 1, 0, 0], post=[1, 1, 1, 0.5, 1]))
     lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
-    assert lines[2] == "Across 1 units: pre 0.20 → post 0.90; normalized gain 0.88."
-    assert "| u1 | 0.20 | 0.90 | — | 0.88 | — |" in lines
+    assert lines[2] == "Across 1 units: pre 0.20 → post 0.90, normalized gain 0.88."
+    assert "| u1 | 0.20 → 0.90 | 0.88 | 0.90 → — | — |" in lines
     assert lines[lines.index("## Due today") + 2] == "None."
 
 
@@ -354,7 +356,7 @@ def test_log_rejects_bad_phase_confidence_exposure(tmp_path, field, value):
 def test_table_escapes_pipe_in_unit_name(tmp_path):
     write_attempts(tmp_path, mk(unit="a|b", pre=[0], post=[1]))
     lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
-    assert "| a\\|b | 0.00 | 1.00 | — | 1.00 | — |" in lines
+    assert "| a\\|b | 0.00 → 1.00 | 1.00 | 1.00 → — | — |" in lines
 
 
 def test_cli_bare_progress_is_usage():
@@ -365,13 +367,15 @@ def test_cli_bare_progress_is_usage():
 
 RENDERED_PAGE = """# Progress — C
 
-Across 1 units: pre 0.00 → post 1.00; normalized gain 1.00.
+Across 1 units: pre 0.00 → post 1.00, normalized gain 1.00.
 
 ## Units
 
-| unit | pre | post | d7 | gain | retention |
-|---|---|---|---|---|---|
-| u1 | 0.00 | 1.00 | — | 1.00 | — |
+| unit | pre → post | gain | post → day 7 | retention |
+|---|---|---|---|---|
+| u1 | 0.00 → 1.00 | 1.00 | 1.00 → — | — |
+
+Gain and retention compare only the concepts attempted in both phases, and the means beside them are over those concepts.
 
 Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7.
 
@@ -420,8 +424,8 @@ def test_gain_pairs_concepts(tmp_path):
     assert normalized_gain(paired_scores(att, "pre", "post")) == pytest.approx(0.5)
     write_attempts(tmp_path, att)
     lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
-    assert lines[2] == "Across 1 units: pre 0.50 → post 0.50; normalized gain 0.50."
-    assert "| u1 | 0.50 | 0.50 | — | 0.50 | — |" in lines
+    assert lines[2] == "Across 1 units: pre 0.00 → post 0.50, normalized gain 0.50."
+    assert "| u1 | 0.00 → 0.50 | 0.50 | 0.50 → — | — |" in lines
 
 
 def test_retention_pairs_concepts(tmp_path):
@@ -430,8 +434,8 @@ def test_retention_pairs_concepts(tmp_path):
     assert retention(paired_scores(att, "post", "d7")) == pytest.approx(0.5)
     write_attempts(tmp_path, att)
     lines = render_progress("C", tmp_path, date(2026, 11, 27)).read_text(encoding="utf-8").splitlines()
-    assert lines[2] == "Across 1 units: post 0.75 → day 7 0.50; retention 0.50."
-    assert "| u1 | — | 0.75 | 0.50 | — | 0.50 |" in lines
+    assert lines[2] == "Across 1 units: post 1.00 → day 7 0.50, retention 0.50."
+    assert "| u1 | — → 0.75 | — | 1.00 → 0.50 | 0.50 |" in lines
     # no concept with both phases: the value is missing
     lonely = mk(unit="u2", post=[1]) + [attempt(unit="u2", item_id="c2-C", variant="C", concept="c2", phase="d7")]
     assert paired_scores(lonely, "post", "d7") == {}
@@ -462,3 +466,31 @@ def test_render_refuses_unknown_course(tmp_path):
         render_progress("Nope", tmp_path, date(2026, 11, 20))
     assert str(e.value) == "no progress log for course 'Nope'"
     assert not (tmp_path / "progress" / "Nope.md").exists()
+    with pytest.raises(FileNotFoundError) as e:
+        render_progress("Bob's notes", tmp_path, date(2026, 11, 20))
+    assert str(e.value) == "no progress log for course 'Bob's notes'"
+
+
+def test_page_means_agree_with_the_gain(tmp_path):
+    # Gain pairs c2 only (pre 0, post 0.5); retention pairs c3 only (post 1, d7 0.5).
+    write_attempts(tmp_path, [
+        attempt(item_id="c1-A", variant="A", concept="c1", phase="pre", score=1),
+        attempt(item_id="c2-A", variant="A", concept="c2", phase="pre", score=0),
+        attempt(item_id="c2-B", variant="B", concept="c2", phase="post", score=0.5),
+        attempt(item_id="c3-B", variant="B", concept="c3", phase="post", score=1),
+        attempt(ts="2026-11-27T10:00:00+00:00", item_id="c3-C", variant="C", concept="c3", phase="d7", score=0.5),
+    ])
+    page = render_progress("C", tmp_path, date(2026, 11, 27)).read_text(encoding="utf-8")
+    lines = page.splitlines()
+    assert lines[2] == (
+        "Across 1 units: pre 0.00 → post 0.50, normalized gain 0.50; post 1.00 → day 7 0.50, retention 0.50."
+    )
+    assert "| u1 | 0.00 → 0.50 | 0.50 | 1.00 → 0.50 | 0.50 |" in lines
+    assert "pre 0.50 → post 0.50" not in page
+    # the per-concept lines keep every attempt
+    by_concept = lines[lines.index("## By concept"):lines.index("## Due today")]
+    assert [x for x in by_concept if x.startswith(("○", "●", "◆", "·"))] == [
+        "····················○  c1",
+        "○·········●··········  c2",
+        "··········◆·········●  c3",
+    ]
