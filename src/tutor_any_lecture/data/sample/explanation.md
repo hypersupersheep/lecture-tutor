@@ -16,11 +16,11 @@ The rate can be the same; compounding changes what it applies to: the balance, w
 
 </details>
 
-2. Which formula turns a quoted rate r, paid m times a year, into the rate actually earned over a full year?
+2. One account pays its quoted yearly rate in four instalments, another pays the same quoted rate in two. Which earns more over a full year, and why?
 
 <details><summary>Answer</summary>
 
-(1 + r/m)^m - 1, the effective annual rate (slide 3, 2:15–2:24).
+The one with four instalments: more payments a year give a higher effective annual rate, even with the same quoted rate (slide 3, 2:33).
 
 </details>
 
