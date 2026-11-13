@@ -16,7 +16,7 @@ In the site's caption tracks: manual ones uploaded by the owner, and automatic o
 1. a manual track in the lecture language (the profile's `lecture_language`; when auto, the video's declared language);
 2. the original-language automatic track, never a machine-translated one, also when the manual track turns out unusable;
 3. only when the profile has `public_video_audio: on` with a recorded consent (`public_video_audio_consent`, see [profile](../profile.md)), and never on a capture platform: the audio stream alone is downloaded to a temporary folder, transcribed locally (as in [local](local.md)) and deleted;
-4. otherwise, when a caption track was found but none was healthy, the best one (by coverage) is kept and reported as `unhealthy`; with no readable track the command stops with `needs_user_file` (below).
+4. otherwise (the switch off, or a capture platform), when a caption track was found but none was healthy, the best one (by coverage) is kept and reported as `unhealthy`; with no readable track the command stops with `needs_user_file` (below). With the switch on and no recorded consent, the command exits 3 with the notice instead, even when unhealthy caption tracks were read.
 
 A healthy track is used at once. Rolling repeats in automatic captions are removed on import.
 

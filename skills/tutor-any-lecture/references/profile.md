@@ -10,12 +10,12 @@ The same folder holds `cli-path`. A missing or empty file means every default. T
 - `tutor-any-lecture profile set KEY VALUE` changes one key and prints the new profile the same way. Every check runs before anything is written; a failed check is a `ProfileError`: one line on stderr naming the key, exit 1, nothing written. It rejects:
   - an unknown key;
   - for `goal`, `terms`, `level`, `output_target`, `downloads`, `public_video_audio` and `naming`, a value outside the set in the table below;
-  - for `outputs`, a value that is not a YAML list, or a member other than explanation, pretest, quiz, cards, map;
+  - for `outputs`, a value that is not a YAML list, a member other than explanation, pretest, quiz, cards, map, or a list without explanation;
   - for `platforms`, a value that is not a YAML mapping, a key other than `moodle` and `panopto`, or a value that is not text;
   - `public_video_audio_consent`, which only the consent gate below writes.
 
   `note_language`, `lecture_language`, `workspace` and `obsidian_vault` take any text.
-- Every command also checks profile.yaml when it reads it: an unknown key, a text field whose value is not text (an unquoted yes, no, true or false is read as a boolean), a value outside its set, or a `public_video_audio_consent` that is not a date is a `ProfileError` (exit 1; for an acquisition command, an `error` object).
+- Every command also checks profile.yaml when it reads it: an unknown key, a text field whose value is not text (an unquoted yes, no, true or false is read as a boolean), a value outside its set, an `outputs` without explanation, or a `public_video_audio_consent` that is not a date is a `ProfileError` (exit 1; for an acquisition command, an `error` object).
 
 **First run asks nothing.** Infer what you can from the conversation, use the defaults for the rest, and deliver. After delivery, invite the learner to set what matters to them, one line per suggestion with the exact `tutor-any-lecture profile set KEY VALUE` command.
 
@@ -30,7 +30,7 @@ In file order, with defaults:
 | `terms` | `bilingual` | bilingual, note, original | how technical terms are written (see [writing](writing.md)) |
 | `level` | `auto` | auto, beginner, intermediate, advanced | how much background the note explains; auto means judged from the conversation and, later, from the pretest scores |
 | `goal` | `deep` | deep, exam, quick | length, coverage and quiz size (table below) |
-| `outputs` | `[explanation, pretest, quiz, cards, map]` | a list | which outputs a unit gets |
+| `outputs` | `[explanation, pretest, quiz, cards, map]` | a list that holds explanation | which outputs a unit gets |
 | `output_target` | `markdown` | markdown, obsidian, notion | where the files go ([markdown](output-targets/markdown.md), [obsidian](output-targets/obsidian.md)); notion is delivered as Markdown for import |
 | `workspace` | `~/TutorAnyLecture` | a folder | holds `courses/<course>/<unit>/` and `progress/` |
 | `obsidian_vault` | empty | a folder | the vault for the obsidian target |

@@ -66,7 +66,7 @@ Follow [writing](references/writing.md) (the note contract) and [teaching](refer
 3. write the rest of the note;
 4. write cards.json and map.json for the outputs listed in plan.json.
 
-For each output plan.json leaves out, skip its artefact and its step: no "cards": cards.json, `cards export` and `cards add-misses`; no "map": map.json and `map mermaid`; no "pretest": the pretest section and the pretest in chat (with "quiz" listed, the gate then warns `pretest_complete`); no "quiz": the `tal:check` sections, the post quiz and the reviews; neither "pretest" nor "quiz": items.json and `items assign` too. explanation.md is always written: the gate reads it.
+For each output plan.json leaves out, skip its artefact and its step: no "cards": cards.json, `cards export` and `cards add-misses`; no "map": map.json and `map mermaid`; no "pretest": the pretest section and the pretest in chat (with "quiz" listed, the gate then warns `pretest_complete`); no "quiz": the `tal:check` sections and every quiz in chat (pretest, post quiz, reviews, practice), so nothing is logged for that unit; neither "pretest" nor "quiz": items.json and `items assign` too. explanation.md is always written: the gate reads it.
 
 A command that finds plan.json, items.json, assignment.json, cards.json or map.json malformed exits 1 with one stderr line that starts with the file's name: fix that file, then rerun the command.
 
@@ -76,11 +76,11 @@ Run `tutor-any-lecture cards export --unit DIR` when "cards" is in plan.outputs 
 
 ## Deliver and pretest
 
-Deliver the files; where they go per `output_target` is in [markdown](references/output-targets/markdown.md) and [obsidian](references/output-targets/obsidian.md). Then, before the learner reads the note, run the pretest in chat with the `items` of `tutor-any-lecture items next --unit DIR --phase pre`, one at a time: ask how sure the learner is before you say whether the answer was right; then grade; then log both with `tutor-any-lecture progress log --unit DIR --item ID --phase pre --score S --confidence K`. Say that a low pretest score is normal. Then ask the learner to read the note and to tell you when they have.
+Deliver the files; where they go per `output_target` is in [markdown](references/output-targets/markdown.md) and [obsidian](references/output-targets/obsidian.md). Then, when "quiz" and "pretest" are in plan.outputs, before the learner reads the note, run the pretest in chat with the `items` of `tutor-any-lecture items next --unit DIR --phase pre`, one at a time: ask how sure the learner is before you say whether the answer was right; then grade; then log both with `tutor-any-lecture progress log --unit DIR --item ID --phase pre --score S --confidence K`. Say that a low pretest score is normal. With "quiz" listed, then ask the learner to read the note and to tell you when they have.
 
 ## Post quiz
 
-When the learner says they have read the note:
+When the learner says they have read the note (only with "quiz" in plan.outputs):
 1. run `tutor-any-lecture items next --unit DIR --phase post` and ask its `items` one at a time: confidence first, then grade, then log each with `tutor-any-lecture progress log --unit DIR --item ID --phase post --score S --confidence K`;
 2. run `tutor-any-lecture cards add-misses --unit DIR` (when "cards" is in plan.outputs).
 
@@ -90,7 +90,7 @@ Reviews are counted from the day of the first post attempt. Until a `post` attem
 
 - Which course: the one the learner names; otherwise every course with a log file under `<workspace>/progress/` (`<course>.jsonl`).
 - Run `tutor-any-lecture progress due --course C`. Each entry names a `unit` and a `phase`; DIR is `<workspace>/courses/<course>/<unit>` (if that folder is missing, look for the plan.json under the workspace whose `course` and `unit` match; otherwise ask the learner).
-- A `post` entry means that unit's post quiz is still owed: run Post quiz. For d1, d7 or d21, run `tutor-any-lecture items next --unit DIR --phase P` (for d1 and d21, first write the D or E variants its `missing` names), ask and log with `--phase P` as in Post quiz, then run `cards add-misses`.
+- A `post` entry means that unit's post quiz is still owed: run Post quiz. For d1, d7 or d21, run `tutor-any-lecture items next --unit DIR --phase P` (for d1 and d21, first write the D or E variants its `missing` names), ask and log with `--phase P` as in Post quiz, then run `cards add-misses` (when "cards" is in plan.outputs).
 - Anything the learner wants beyond what is due is practice: items from the `practice` list of items.json, or `tutor-any-lecture items get --unit DIR --id ID`, logged with `--phase practice`. From a course's third unit on, a quiz may add up to two practice items from earlier units, each logged against its own unit.
 - `tutor-any-lecture progress render --course C` writes the progress page. Grading, confidence, variants and interleaving: [teaching](references/teaching.md).
 

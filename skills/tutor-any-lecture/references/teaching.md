@@ -6,18 +6,18 @@ A command that reads plan.json, items.json, assignment.json, cards.json or map.j
 
 ## plan.json
 
-One JSON object holding the twelve keys `course`, `unit`, `goal`, `content_type`, `note_language`, `lecture_language`, `duration_s`, `outputs`, `sections`, `concepts`, `tracked`, `output_target`. Every command that reads plan.json rejects it (a `PlanError`: exit 1, one stderr line that starts with `plan.json:`) when, and only when:
-- the file is missing, its bytes are not UTF-8 or not valid JSON (a leading byte-order mark is accepted), or its top level is not an object;
+One JSON object holding the twelve keys `course`, `unit`, `goal`, `content_type`, `note_language`, `lecture_language`, `duration_s`, `outputs`, `sections`, `concepts`, `tracked`, `output_target`. A missing plan.json is a `FileNotFoundError`: exit 1, one stderr line that starts with `plan.json:`. Every command that reads plan.json rejects an existing one (a `PlanError`: exit 1, one stderr line that starts with `plan.json:`) when, and only when:
+- its bytes are not UTF-8 or not valid JSON (a leading byte-order mark is accepted), or its top level is not an object;
 - one of the twelve keys is missing (extra keys are ignored);
 - `course` or `unit` cannot be a folder name (the rule below);
 - `note_language` or `lecture_language` is not a string, is "auto" in any letter case, or is not two or three lowercase letters;
 - `goal` is not deep, exam or quick; `output_target` is not markdown or obsidian;
 - `duration_s` is neither a number nor null (true and false are not numbers);
-- `outputs` is not a list of strings;
+- `outputs` is not a list of strings, or does not hold explanation;
 - `concepts` is not a list, or one of its entries is not an object with a string `id`;
 - `tracked` is not a list, names an id that no concept has, names one twice, or does not hold exactly `min(5, len(concepts))` ids.
 
-Nothing else is checked. `content_type`, `sections`, each concept's `name`, `type` and `citations`, and the members of `outputs` are yours to get right, as the list further below says.
+Nothing else is checked. `content_type`, `sections`, each concept's `name`, `type` and `citations`, and the other members of `outputs` are yours to get right, as the list further below says.
 
 **Course and unit names.** Each is a non-empty string with no leading or trailing whitespace, none of `/ \ : * ? " < > |`, no control character, not `.` or `..`, no trailing dot, and not a Windows device name (CON, PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, in any letter case, also before an extension, as in `con.txt`). `progress due` and `progress render` apply the same rule to their `--course`. Write `CS 101 - Intro`, not `CS 101: Intro`.
 
@@ -25,7 +25,7 @@ Nothing else is checked. `content_type`, `sections`, each concept's `name`, `typ
 - `content_type`: formula, code, concept or mixed; it steers the item kinds below.
 - `note_language`, `lecture_language`: lowercase primary subtags such as "en", "zh", "ja"; never "auto".
 - `duration_s`: the lecture length in seconds, a number, or null when unknown.
-- `outputs`: a list of strings from explanation, pretest, quiz, cards, map.
+- `outputs`: a list of strings from explanation, pretest, quiz, cards, map. It always holds explanation: the gate reads explanation.md, so `profile set outputs`, the profile loader and every command that reads plan.json reject a list without it.
 - `concepts`: a list of `{"id", "name", "type", "citations"}`. `type` is one of `definition`, `theorem`, `method`, `example`, `pitfall` (the map node types); `citations` are plain strings such as `"(slide 1)"` or `"(13:42)"`. Give every concept its own id, in the map's id style (letters, digits and underscores, starting with a letter), so a concept can also be a map node.
 - `tracked`: `min(5, len(concepts))` distinct concept ids.
 - `sections`: a list of objects, one per planned H2 section of the note: `{"title": "…", "concepts": [ids], "citations": ["(slide 1)", …]}`.
@@ -88,7 +88,7 @@ Label each item by what it really asks. An item that asks the learner to state a
 
 ## Tracked concepts and variants
 
-5 tracked concepts per unit (all when fewer). Each has parallel variants A, B and C: the same concept and difficulty, a different surface (other numbers, another case, another direction). `tutor-any-lecture items assign --unit DIR` assigns them at random to pre, post and d7 and records the result in assignment.json; it reuses an existing assignment.json unless `--force` is given. D and E, for d1 and d21, are optional. Parallel variants of one concept must differ enough that no variant's prompt reaches 0.6 containment in another variant's prompt.
+5 tracked concepts per unit (all when fewer). Each has parallel variants A, B and C: the same concept and difficulty, a different surface (other numbers, another case, another direction). All variants of one concept share one `kind` and ask in the same form, so that if one asks for a number, every one does; a concept whose variants differ in kind fails `variants`. `tutor-any-lecture items assign --unit DIR` assigns them at random to pre, post and d7 and records the result in assignment.json; it reuses an existing assignment.json unless `--force` is given. D and E, for d1 and d21, are optional. Parallel variants of one concept must differ enough that no variant's prompt reaches 0.6 containment in another variant's prompt.
 
 ## Practice items
 
@@ -130,7 +130,7 @@ The same protocol for every phase: pre, post, d1, d7, d21 and practice.
 
 ## Pretest
 
-The pretest is asked in chat before the learner reads the note, whether or not they attended. Before the first question, and again when reporting the score, tell the learner that a low pretest score is normal: guessing first makes the lecture stick better. The score changes the reading focus, which folded supplements to suggest, and the next unit's `level`; it never triggers a rewrite of the note. Ask the `pre` items as above, and record how the learner met the lecture with `--exposure` when they tell you (none, attended, watched; unknown otherwise). Then ask the learner to read the note and to say when they have.
+The pretest is asked in chat before the learner reads the note, whether or not they attended, when plan.outputs lists both "pretest" and "quiz". Without "quiz" there is no pretest and no post quiz, and nothing is logged for that unit: a logged pretest with no post quiz would leave a `post` entry due for ever. Before the first question, and again when reporting the score, tell the learner that a low pretest score is normal: guessing first makes the lecture stick better. The score changes the reading focus, which folded supplements to suggest, and the next unit's `level`; it never triggers a rewrite of the note. Ask the `pre` items as above, and record how the learner met the lecture with `--exposure` when they tell you (none, attended, watched; unknown otherwise). Then ask the learner to read the note and to say when they have.
 
 ## Post quiz
 
@@ -142,7 +142,7 @@ When the learner says they have read the note, get the items with `tutor-any-lec
 
 **What is due.** `tutor-any-lecture progress due --course C` prints a list of `{"unit", "phase", "due", "optional"}` entries, oldest first:
 - `post`: the unit has a pretest attempt and no post attempt; its post quiz is still owed. Run it as in Post quiz.
-- `d1`, `d7`, `d21`: 1, 7 and 21 days after the unit's first post attempt. d1 and d21 are optional, and d1 lapses once d7 is due or done. Get the items with `tutor-any-lecture items next --unit DIR --phase P`; for d1 and d21, read `missing` in its output and write the D (d1) or E (d21) variants for those concepts into items.json first (or skip the optional review). Ask and log with `--phase P`, then run `tutor-any-lecture cards add-misses --unit DIR`.
+- `d1`, `d7`, `d21`: 1, 7 and 21 days after the unit's first post attempt. d1 and d21 are optional, and d1 lapses once d7 is due or done. Get the items with `tutor-any-lecture items next --unit DIR --phase P`; for d1 and d21, read `missing` in its output and write the D (d1) or E (d21) variants for those concepts into items.json first (or skip the optional review). Ask and log with `--phase P`, then run `tutor-any-lecture cards add-misses --unit DIR` (when "cards" is in plan.outputs).
 
 For an entry, DIR is `<workspace>/courses/<course>/<unit>`. Anything the learner wants beyond what is due is practice: practice items, logged with `--phase practice`. Practice misses make no cards.
 
