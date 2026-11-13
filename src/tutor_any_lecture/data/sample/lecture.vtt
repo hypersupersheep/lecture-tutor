@@ -1,0 +1,61 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:09.000
+Today we look at one idea that sits under almost every price in finance: compound interest.
+
+00:00:09.000 --> 00:00:18.000
+Suppose a bank pays you a yearly rate on a deposit. There are two ways it can work out what to pay.
+
+00:00:18.000 --> 00:00:27.000
+With simple interest, the bank pays the rate on the deposit only, every year, and nothing else.
+
+00:00:27.000 --> 00:00:36.000
+With compound interest, the bank pays the rate on the whole balance, and the balance includes the interest you already earned.
+
+00:00:36.000 --> 00:00:45.000
+So last year's interest is now part of the balance, and this year it earns interest too.
+
+00:00:45.000 --> 00:00:54.000
+That is the whole trick. People call it interest on interest, and it is on the first slide for a reason.
+
+00:00:54.000 --> 00:01:03.000
+Now let us write it down. Call the deposit P and the yearly rate r.
+
+00:01:03.000 --> 00:01:12.000
+After one year the balance is P times one plus r. After two years you multiply by one plus r again.
+
+00:01:12.000 --> 00:01:21.000
+Every year is the same step, so after n years the balance is P times one plus r to the power n.
+
+00:01:21.000 --> 00:01:30.000
+Let us put numbers in. Take a deposit of 100 at 5% a year.
+
+00:01:30.000 --> 00:01:39.000
+With simple interest you get 5 each year, so after 10 years you have 150.
+
+00:01:39.000 --> 00:01:48.000
+With compounding, the same 100 grows to 162.89 after 10 years.
+
+00:01:48.000 --> 00:01:57.000
+The gap is small at first and then it keeps widening, because each year starts from a bigger balance.
+
+00:01:57.000 --> 00:02:06.000
+One more question: how often does the bank pay? Many accounts pay monthly, or even daily.
+
+00:02:06.000 --> 00:02:15.000
+If the quoted rate is r and the bank pays m times a year, each payment uses r over m.
+
+00:02:15.000 --> 00:02:24.000
+Over a full year the balance grows by one plus r over m, to the power m.
+
+00:02:24.000 --> 00:02:33.000
+Take away one and you have the effective annual rate, the rate you really earn over the year.
+
+00:02:33.000 --> 00:02:42.000
+The more often the bank pays, the higher the effective rate, even with the same quoted rate.
+
+00:02:42.000 --> 00:02:51.000
+So when you compare two accounts, compare their effective annual rates, not the quoted ones.
+
+00:02:51.000 --> 00:02:58.000
+That is it for today. Next time we turn this around and ask what a future payment is worth now.

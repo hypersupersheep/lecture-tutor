@@ -1,0 +1,73 @@
+{
+  "nodes": [
+    {
+      "id": "simple",
+      "label": "Simple interest",
+      "type": "definition",
+      "order": 1,
+      "citation": "(slide 1)"
+    },
+    {
+      "id": "compound",
+      "label": "Compound interest",
+      "type": "definition",
+      "order": 2,
+      "citation": "(slide 1)"
+    },
+    {
+      "id": "growth",
+      "label": "Balance after n years",
+      "type": "theorem",
+      "order": 3,
+      "citation": "(slide 2)"
+    },
+    {
+      "id": "frequency",
+      "label": "Paying m times a year",
+      "type": "method",
+      "order": 4,
+      "citation": "(slide 3)"
+    },
+    {
+      "id": "effective",
+      "label": "Effective annual rate",
+      "type": "definition",
+      "order": 5,
+      "citation": "(slide 3)"
+    },
+    {
+      "id": "quoted",
+      "label": "Comparing quoted rates",
+      "type": "pitfall",
+      "order": 6,
+      "citation": "(slide 3)"
+    }
+  ],
+  "edges": [
+    {
+      "from": "compound",
+      "to": "simple",
+      "verb": "grows faster than"
+    },
+    {
+      "from": "compound",
+      "to": "growth",
+      "verb": "gives"
+    },
+    {
+      "from": "frequency",
+      "to": "growth",
+      "verb": "repeats the step of"
+    },
+    {
+      "from": "frequency",
+      "to": "effective",
+      "verb": "raises"
+    },
+    {
+      "from": "effective",
+      "to": "quoted",
+      "verb": "replaces"
+    }
+  ]
+}

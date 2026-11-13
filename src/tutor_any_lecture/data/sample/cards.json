@@ -1,0 +1,44 @@
+[
+  {
+    "id": "c01",
+    "concept": "compound_interest",
+    "front": "Compound interest: on what amount is the rate paid?",
+    "back": "On the whole balance, past interest included, not only on the deposit.",
+    "citation": "(slide 1, 0:27)"
+  },
+  {
+    "id": "c02",
+    "concept": "compound_interest",
+    "front": "Why does a compound balance pull away from a simple one over time?",
+    "back": "Each year's interest joins the balance and earns interest too, so every year starts from a bigger base.",
+    "citation": "(0:36, 1:48)"
+  },
+  {
+    "id": "c03",
+    "concept": "growth_formula",
+    "front": "Balance of deposit P after n years of yearly compounding at rate r?",
+    "back": "P(1 + r)^n",
+    "citation": "(slide 2, 1:12)"
+  },
+  {
+    "id": "c04",
+    "concept": "growth_formula",
+    "front": "100 at 5% a year for 10 years: simple total and compound total?",
+    "back": "150 with simple interest, 162.89 with compounding.",
+    "citation": "(slide 2, 1:30–1:39)"
+  },
+  {
+    "id": "c05",
+    "concept": "effective_rate",
+    "front": "Effective annual rate of a quoted rate r paid m times a year?",
+    "back": "(1 + r/m)^m - 1",
+    "citation": "(slide 3, 2:15–2:24)"
+  },
+  {
+    "id": "c06",
+    "concept": "effective_rate",
+    "front": "Accounts that pay on different schedules: which rate do you compare?",
+    "back": "The effective annual rate, not the quoted rate; more frequent payments raise it.",
+    "citation": "(slide 3, 2:42)"
+  }
+]

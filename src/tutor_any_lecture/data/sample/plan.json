@@ -1,0 +1,65 @@
+{
+  "course": "Sample",
+  "unit": "compound-interest",
+  "goal": "deep",
+  "content_type": "formula",
+  "note_language": "en",
+  "lecture_language": "en",
+  "duration_s": 180,
+  "outputs": [
+    "explanation",
+    "pretest",
+    "quiz",
+    "cards",
+    "map"
+  ],
+  "sections": [
+    {
+      "title": "Interest on interest",
+      "concepts": [
+        "compound_interest",
+        "growth_formula",
+        "effective_rate"
+      ],
+      "citations": [
+        "(slides 1–3)",
+        "(0:00–2:58)"
+      ]
+    }
+  ],
+  "concepts": [
+    {
+      "id": "compound_interest",
+      "name": "Compound interest",
+      "type": "definition",
+      "citations": [
+        "(slide 1)",
+        "(0:27)"
+      ]
+    },
+    {
+      "id": "growth_formula",
+      "name": "Balance after n years",
+      "type": "theorem",
+      "citations": [
+        "(slide 2)",
+        "(1:12)"
+      ]
+    },
+    {
+      "id": "effective_rate",
+      "name": "Effective annual rate",
+      "type": "definition",
+      "citations": [
+        "(slide 3)",
+        "(2:24)"
+      ]
+    }
+  ],
+  "tracked": [
+    "compound_interest",
+    "growth_formula",
+    "effective_rate"
+  ],
+  "output_target": "markdown"
+}

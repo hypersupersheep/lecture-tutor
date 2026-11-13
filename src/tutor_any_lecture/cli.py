@@ -405,6 +405,20 @@ def _cmd_verify(args) -> int:
     return EXIT_OK if result["overall"] == "PASS" else EXIT_FAIL
 
 
+def _cmd_selftest(args) -> int:
+    from pathlib import Path
+
+    from .selftest import run_selftest
+
+    # A non-empty --keep folder raises FileExistsError, which main maps to EXIT_ACTION.
+    result = run_selftest(Path(args.keep)) if args.keep is not None else run_selftest()
+    for step in result["steps"]:
+        print(f"{'ok' if step['ok'] else 'FAIL':<4}  {step['name']}: {step['detail']}")
+    if args.keep is not None:
+        print(f"unit folder: {Path(args.keep)}")
+    return EXIT_OK if result["ok"] else EXIT_FAIL
+
+
 def _positive_number(value: str) -> float:
     """argparse type for --duration and --budget-minutes: a positive, finite number."""
     try:
@@ -557,7 +571,10 @@ def build_parser() -> argparse.ArgumentParser:
     ver.add_argument("--unit", required=True, help="the unit folder")
     ver.add_argument("--json", action="store_true", help="print the result as one JSON line instead of a table")
     ver.set_defaults(func=_cmd_verify)
-    _stub(sub, "selftest")
+    st = sub.add_parser("selftest", help="run the bundled sample unit through the offline pipeline")
+    st.add_argument("--keep", default=None, metavar="DIR",
+                    help="generate the unit in this new or empty folder and keep it")
+    st.set_defaults(func=_cmd_selftest)
     return parser
 
 
