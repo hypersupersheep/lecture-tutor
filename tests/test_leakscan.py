@@ -59,14 +59,14 @@ def new_repo(tmp_cfg, monkeypatch, name="repo"):
     return repo
 
 
-def run_hook(repo, cfg, stdin_text):
+def run_hook(repo, cfg, stdin_text, remote="origin"):
     """Run the script as git runs a pre-push hook: in the repo, ref lines on stdin."""
     env = dict(os.environ)
     env["XDG_CONFIG_HOME"] = str(cfg)
     env["APPDATA"] = str(cfg)
     env["GIT_CEILING_DIRECTORIES"] = str(cfg)
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "origin", "https://example.invalid/repo.git"],
+        [sys.executable, str(SCRIPT), remote, "https://example.invalid/repo.git"],
         cwd=repo,
         env=env,
         input=stdin_text.encode("utf-8"),
@@ -216,6 +216,7 @@ def test_annotated_tag_message_is_scanned(tmp_cfg, monkeypatch):
     code, err = run_hook(repo, tmp_cfg, f"refs/tags/v2 {tag} refs/tags/v2 {ZERO}\n")
     assert code == 0, err
 
+
 def test_merge_commit_changes_are_scanned(tmp_cfg, monkeypatch):
     write_denylist(tmp_cfg, "SecretWord")
     repo = new_repo(tmp_cfg, monkeypatch)
@@ -282,3 +283,111 @@ def test_leakscan_is_stdlib_only_py39():
             roots.add(node.module.split(".")[0])
     assert "__future__" in roots
     assert roots <= set(sys.stdlib_module_names) | {"__future__"}
+
+
+# ---- Task 28: prefix terms, fixed log format, target remote, deleted binaries ----
+
+
+BINARY = b"\x00\x01\x02\xff\x00binary"
+
+
+def commit_binary(repo, name, message):
+    """Write one binary file, stage it and commit it; return the new commit's sha."""
+    (repo / name).write_bytes(BINARY)
+    git(repo, "add", name)
+    git(repo, "commit", "-q", "--no-verify", "-m", message)
+    return sha(repo)
+
+
+def test_star_terms_match_prefixes():
+    assert scan("ABC0013", ["ABC0*"]) == ["ABC0*"]
+    assert scan("abc0", ["ABC0*"]) == ["ABC0*"]
+    assert scan("xabc0013", ["ABC0*"]) == []
+    assert scan("see (abc0013) here", ["ABC0*"]) == ["ABC0*"]
+    assert scan("x9abc0", ["ABC0*"]) == []
+    # a term without a star keeps the whole-word rule
+    assert scan("ABC0013", ["ABC0"]) == []
+
+
+def test_commit_messages_are_scanned_whatever_format_pretty_says(tmp_cfg, monkeypatch):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    git(repo, "config", "format.pretty", "oneline")
+    (repo / "clean.txt").write_text("hello\n", encoding="utf-8", newline="\n")
+    git(repo, "add", "clean.txt")
+    # the term is only in the body of the message, which the oneline format hides
+    git(repo, "commit", "-q", "--no-verify", "-m", "clean subject", "-m", "body with secretword")
+    monkeypatch.chdir(repo)
+    assert leak_main([]) == 1
+
+
+def test_new_branch_range_uses_the_named_remote(tmp_cfg, monkeypatch):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    for name in ("origin", "mirror"):
+        bare = tmp_cfg / f"{name}.git"
+        bare.mkdir()
+        git(bare, "init", "-q", "--bare")
+        git(repo, "remote", "add", name, str(bare))
+    commit_file(repo, "old.txt", "see secretword notes\n", "only on mirror")
+    # the term is on the mirror remote, and not on origin
+    git(repo, "push", "-q", "mirror", "main")
+    git(repo, "checkout", "-q", "-b", "feature")
+    c2 = commit_file(repo, "clean.txt", "hello\n", "clean")
+    line = f"refs/heads/feature {c2} refs/heads/feature {ZERO}\n"
+    code, err = run_hook(repo, tmp_cfg, line, remote="origin")
+    assert code == 1, err
+    assert "SecretWord" in err
+    code, err = run_hook(repo, tmp_cfg, line, remote="mirror")
+    assert code == 0, err
+
+
+def test_deleting_a_binary_does_not_block(tmp_cfg, monkeypatch):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    c1 = commit_binary(repo, "image.bin", "c1")
+    git(repo, "rm", "-q", "image.bin")
+    git(repo, "commit", "-q", "--no-verify", "-m", "remove the binary")
+    c2 = sha(repo)
+    code, err = run_hook(repo, tmp_cfg, f"refs/heads/main {c2} refs/heads/main {c1}\n")
+    assert code == 0, err
+    # by hand too: the binary was staged for removal only
+    commit_binary(repo, "other.bin", "c3")
+    git(repo, "rm", "-q", "other.bin")
+    monkeypatch.chdir(repo)
+    git(repo, "update-ref", "refs/remotes/origin/main", sha(repo))
+    assert leak_main([]) == 0
+
+
+def test_binary_added_in_a_merge_blocks(tmp_cfg, monkeypatch, capsys):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    commit_file(repo, "a.txt", "hello\n", "c1")
+    git(repo, "checkout", "-q", "-b", "side")
+    commit_file(repo, "b.txt", "side work\n", "c2")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+    # the binary enters only in the merge commit itself
+    (repo / "merged.bin").write_bytes(BINARY)
+    git(repo, "add", "merged.bin")
+    git(repo, "commit", "-q", "--no-verify", "-m", "merge side")
+    monkeypatch.chdir(repo)
+    assert leak_main([]) == 1
+    assert "merged.bin" in capsys.readouterr().err
+
+
+def test_binary_in_a_pushed_range_blocks(tmp_cfg, monkeypatch):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    c1 = commit_file(repo, "clean.txt", "hello\n", "c1")
+    c2 = commit_binary(repo, "image.bin", "c2")
+    code, err = run_hook(repo, tmp_cfg, f"refs/heads/main {c2} refs/heads/main {c1}\n")
+    assert code == 1, err
+    assert "image.bin" in err
+    # a binary changed in place blocks as well
+    (repo / "image.bin").write_bytes(BINARY + b"\x00more")
+    git(repo, "commit", "-q", "--no-verify", "-am", "c3")
+    c3 = sha(repo)
+    code, err = run_hook(repo, tmp_cfg, f"refs/heads/main {c3} refs/heads/main {c2}\n")
+    assert code == 1, err
+    assert "image.bin" in err

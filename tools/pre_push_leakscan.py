@@ -2,21 +2,27 @@
 
 The terms live outside the repository, one per line, in <config_dir>/denylist.txt
 (blank lines and lines starting with "#" are ignored; a leading byte-order mark is
-dropped). Matching is case-insensitive. A term made only of ASCII letters, digits and
-spaces matches only as a whole word (no ASCII letter or digit touching it on either
-side); any other term matches as a substring.
+dropped). Matching is case-insensitive. A term that ends with "*" is a prefix: the text
+before the star matches where no ASCII letter or digit comes before it, whatever
+follows ("ABC0*" finds "abc0013" but not "xabc0013"). Any other term made only of
+ASCII letters, digits and spaces matches only as a whole word (no ASCII letter or digit
+touching it on either side); the rest match as substrings.
 
 What is scanned. Git runs a pre-push hook with one line per pushed ref on stdin:
 "<local ref> <local sha> <remote ref> <remote sha>". For each line the commits in
-<remote sha>..<local sha> are scanned, or <local sha> --not --remotes when the remote
-ref is new, and so is the message of a pushed annotated tag; a deleted ref (local sha
-all zeros) publishes nothing. With nothing on
-stdin (the script run by hand) it scans the staged diff and the commits of HEAD that
-are not on origin/<branch>, or on no remote at all. Merge commits are shown against
-each parent (git log -m), so a change made only in a merge is scanned too.
+<remote sha>..<local sha> are scanned, or, when the remote ref is new, <local sha>
+--not --remotes=<remote>, the commits not yet on the remote that git names as the
+hook's first argument (--not --remotes, on no remote at all, without one); so is the
+message of a pushed annotated tag. A deleted ref (local sha all zeros) publishes
+nothing. With nothing on stdin (the script run by hand) it scans the staged diff and
+the commits of HEAD that are not on origin/<branch>, or on no remote at all. Merge
+commits are shown against each parent (git log -m), so a change made only in a merge
+is scanned too. Each commit is printed in a fixed format, whatever the user's
+format.pretty says: its full message and its author's and committer's names and
+addresses, then its diff.
 
 Binary files. Every file git reports as binary in the scanned changes blocks the push
-unless its path matches an fnmatch pattern in <config_dir>/leakscan-allow.txt (one
+(added or changed; removing one publishes nothing) unless its path matches an fnmatch pattern in <config_dir>/leakscan-allow.txt (one
 pattern per line, blank and "#" lines ignored; the file is optional).
 
 Fail closed. A denylist that is missing, unreadable, not UTF-8 or without a single
@@ -41,9 +47,16 @@ GIT = ["git", "-c", "core.quotepath=false"]
 BOM = "\ufeff"
 # A term of only ASCII letters, digits and spaces is matched as a whole word.
 WORD_TERM = re.compile(r"[A-Za-z0-9 ]+")
+# A term ending with this is a prefix.
+PREFIX_MARK = "*"
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 # Options for every diff-producing git call: the raw content, never a converted one.
 DIFF_OPTS = ["--no-color", "--no-ext-diff", "--no-textconv"]
+# The format of each scanned commit, named here so that format.pretty cannot shorten it:
+# the full message and the author's and committer's names and addresses.
+LOG_FORMAT = "--format=commit %H%nauthor %an <%ae>%ncommitter %cn <%ce>%n%n%B"
+# Removed files publish nothing: every other change (added, modified, ...) is checked.
+NOT_DELETED = "--diff-filter=d"
 
 
 class GitError(Exception):
@@ -119,6 +132,11 @@ def _entries(path: Path, what: str, required: bool) -> list[str]:
 
 
 def _term_found(term: str, text: str, folded: str) -> bool:
+    if term.endswith(PREFIX_MARK):
+        # A prefix: no ASCII letter or digit right before it, anything after it.
+        prefix = term[: -len(PREFIX_MARK)].casefold()
+        pattern = r"(?<![a-z0-9])" + re.escape(prefix)
+        return re.search(pattern, folded) is not None
     if WORD_TERM.fullmatch(term):
         pattern = r"(?<![A-Za-z0-9])(?i:" + re.escape(term) + r")(?![A-Za-z0-9])"
         return re.search(pattern, text) is not None
@@ -154,8 +172,13 @@ def _stdin_text() -> str:
         raise Blocked(f"leak scan: blocked, cannot read the pushed refs on stdin: {exc}") from None
 
 
-def _pushed_ranges(text: str) -> list[tuple[str, list[str]]]:
-    """(local sha, git revision range) per pushed ref line; a deleted ref adds none."""
+def _pushed_ranges(text: str, remote: str | None) -> list[tuple[str, list[str]]]:
+    """(local sha, git revision range) per pushed ref line; a deleted ref adds none.
+
+    A ref that is new on the remote scans the commits that are not on ``remote`` (on
+    no remote at all when it is None).
+    """
+    not_on_remote = f"--remotes={remote}" if remote else "--remotes"
     ranges = []
     for line in text.splitlines():
         if not line.strip():
@@ -167,7 +190,7 @@ def _pushed_ranges(text: str) -> list[tuple[str, list[str]]]:
         if set(local_sha) == {"0"}:
             continue
         if set(remote_sha) == {"0"}:
-            ranges.append((local_sha, [local_sha, "--not", "--remotes"]))
+            ranges.append((local_sha, [local_sha, "--not", not_on_remote]))
         else:
             ranges.append((local_sha, [f"{remote_sha}..{local_sha}"]))
     return ranges
@@ -214,13 +237,15 @@ def _collect(
     binaries = []
     if staged:
         parts.append(_git_text("diff", "--cached", *DIFF_OPTS))
-        numstat = _git_text("diff", "--cached", "--numstat", "-z", "--no-renames")
+        numstat = _git_text("diff", "--cached", "--numstat", "-z", "--no-renames", NOT_DELETED)
         binaries.extend(_binary_paths(numstat))
     for rev_range in ranges:
         # -m: a merge commit shows what it changed against each parent.
-        parts.append(_git_text("log", "-p", "-m", *DIFF_OPTS, *rev_range))
+        parts.append(
+            _git_text("log", "-p", "-m", "--encoding=UTF-8", LOG_FORMAT, *DIFF_OPTS, *rev_range)
+        )
         numstat = _git_text(
-            "log", "-m", "--numstat", "-z", "--no-renames", "--format=", *rev_range
+            "log", "-m", "--numstat", "-z", "--no-renames", NOT_DELETED, "--format=", *rev_range
         )
         binaries.extend(_binary_paths(numstat))
     return "".join(parts), binaries
@@ -229,8 +254,12 @@ def _collect(
 def main(argv: list[str] | None = None) -> int:
     """Return 0 when the push may go ahead, 1 when it must be blocked.
 
-    argv (git passes the remote name and URL) is ignored.
+    argv is what git passes: the remote's name, then its URL (sys.argv[1:] when None).
+    The name picks the remote whose commits a new ref need not rescan.
     """
+    if argv is None:
+        argv = sys.argv[1:]
+    remote = argv[0] if argv and argv[0] else None
     cfg = _config_dir()
     denylist_path = cfg / "denylist.txt"
     allow_path = cfg / "leakscan-allow.txt"
@@ -241,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         allowed = _entries(allow_path, "binary allow list", required=False)
         refs = _stdin_text()
         if refs.strip():
-            pushed = _pushed_ranges(refs)
+            pushed = _pushed_ranges(refs, remote)
             text, binaries = _collect(
                 [rev_range for _, rev_range in pushed],
                 staged=False,
