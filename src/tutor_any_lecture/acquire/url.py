@@ -1,8 +1,9 @@
-"""A public video URL to a transcript: captions first, then (only with consent) audio and ASR.
+"""A video URL to a transcript: captions first, then (only with consent) audio and ASR.
 
-yt-dlp is used without cookies or credentials of any kind. Only audio is ever downloaded,
-into a temp folder that is removed when the run ends, and never from a lecture-capture
-or meeting platform: there only captions are used.
+yt-dlp is used without cookies or credentials of any kind, so only what is reachable
+without signing in is reached. Only audio is ever downloaded, into a temp folder that is
+removed when the run ends. Whether to download it is the learner's decision: the
+public_video_audio switch and its recorded consent are the only gate, for every address.
 """
 
 from __future__ import annotations
@@ -47,17 +48,14 @@ _BASE_OPTS = {
 _JS_RUNTIMES = ("deno", "node")
 
 # Extractor keys (compared without letter case, by prefix) of lecture-capture and meeting
-# platforms. Their owners decide whether recordings may be downloaded, so audio is never
-# fetched from them, whatever the profile says: only their captions are used.
+# platforms. They are recognised for one purpose only: such an address may carry an access
+# token, so it is stored in source.json without one. The audio rung treats them like any site.
 CAPTURE_PLATFORMS = ("panopto", "kaltura", "mediasite", "echo360", "yuja", "opencast", "zoom")
 # The same platforms recognised by address, for the ones yt-dlp has no extractor for and
 # for self-hosted sites that resolve to the generic extractor: a host or path containing
 # one of these words, or a Zoom host (the bare word "zoom" would also match unrelated sites).
 CAPTURE_ADDRESS_WORDS = ("panopto", "kaltura", "mediasite", "echo360", "yuja", "opencast")
 ZOOM_HOSTS = ("zoom.us", "zoom.com", "zoomgov.com")
-CAPTURE_MESSAGE = (
-    "this platform's recordings are not downloaded: use its captions, or a file its owner lets you download"
-)
 
 
 def _opts(**extra) -> dict:
@@ -337,14 +335,15 @@ def acquire_url(
         _write(paths, info, stored_url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
         return h
 
-    # The audio rung, when it may run. Otherwise the best unhealthy track is kept and
-    # reported (the command exits 1); with no track at all the learner must bring a file.
-    if capture or profile.public_video_audio != "on":
+    # The audio rung, when the learner switched it on; no platform is refused. Otherwise the
+    # best unhealthy track is kept and reported (the command exits 1); with no track at all
+    # the learner must bring a file.
+    if profile.public_video_audio != "on":
         if tried:
             kind, lang, segments, h = max(tried, key=lambda t: t[3].coverage)
             _write(paths, info, stored_url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
             return h
-        raise NeedsUserFile(CAPTURE_MESSAGE if capture else None)
+        raise NeedsUserFile()
     if not has_audio_consent(profile):
         # Switched on by hand in profile.yaml, without the notice: show it now.
         raise ConsentRequired(PUBLIC_VIDEO_AUDIO_NOTICE)

@@ -13,7 +13,7 @@ import yaml
 from .config import config_dir
 from .plan import DEFAULT_QUOTE_DENSITY, QUOTE_DENSITIES
 
-PUBLIC_VIDEO_AUDIO_NOTICE = "Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded."
+PUBLIC_VIDEO_AUDIO_NOTICE = "Turning this on lets tutor-any-lecture download the audio track of a video (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. The choice and the responsibility are yours for every address you give, a school's or a meeting platform's recordings included: check that you are allowed to download it, and follow its site's terms and copyright; use it for personal study only. The tool uses no cookies and no login, so a recording behind a sign-in is out of reach, and DRM is never circumvented."
 
 PROFILE_FILE_NAME = "profile.yaml"
 

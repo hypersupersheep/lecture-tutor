@@ -583,35 +583,19 @@ def test_unhealthy_captions_are_kept_and_reported(tmp_cfg, monkeypatch, tmp_path
     assert fake.caption_requests == [("cc", "en"), ("auto", "en-orig")] and fake.downloads == []
 
 
-def test_unhealthy_captions_are_kept_on_a_capture_platform(monkeypatch, fake_asr, tmp_path, profile_on):
-    _install(monkeypatch, {**info(subs={"en": [orig()]}, lang="en"), "extractor_key": "Panopto"},
-             {("cc", "en"): SHORT_VTT})
-    h = acquire_url("https://y/x", tmp_path, profile_on, False)
-    assert not h.ok and read_source(tmp_path)["acquisition"] == "cc"
-    assert fake_asr.calls == []
-
-
-CAPTURE_MESSAGE = "this platform's recordings are not downloaded: use its captions, or a file its owner lets you download"
-
-
-@pytest.mark.parametrize("extractor", ["Panopto", "Kaltura", "Zoom"])
-def test_lecture_capture_platform_never_downloads_audio(monkeypatch, fake_asr, tmp_path, profile_on, extractor):
+@pytest.mark.parametrize("url, extractor", [
+    ("https://www.example.com/watch?v=1", "Youtube"),
+    ("https://video.example.edu/Panopto/Pages/Viewer.aspx?id=1", "Panopto"),
+    ("https://example.zoom.us/rec/play/1", "Zoom"),
+], ids=["public-video", "panopto", "zoom"])
+def test_audio_rung_runs_for_any_address_when_switched_on(monkeypatch, fake_asr, tmp_path, profile_on, url, extractor):
+    # The switch and the recorded consent are the only gate: no platform is refused.
     assert profile_on.public_video_audio == "on" and profile_on.public_video_audio_consent
-    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": extractor})
-    with pytest.raises(NeedsUserFile) as exc:
-        acquire_url("https://y/x", tmp_path, profile_on, False)
-    assert str(exc.value) == CAPTURE_MESSAGE
-    assert fake.downloads == [] and not any("format" in o for o in fake.all_opts)
-    assert fake_asr.calls == []
-    assert not UnitPaths(tmp_path).transcript.exists()
-
-
-@pytest.mark.parametrize("extractor", ["Mediasite", "Echo360", "YuJa", "Opencast", "KalturaPlaylist", "PanoptoList"])
-def test_every_capture_platform_prefix_is_caught(monkeypatch, fake_asr, tmp_path, profile_on, extractor):
-    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": extractor})
-    with pytest.raises(NeedsUserFile, match="not downloaded"):
-        acquire_url("https://y/x", tmp_path, profile_on, False)
-    assert fake.downloads == []
+    fake = _install(monkeypatch, {**info(lang="en", duration=2400.0), "extractor_key": extractor})
+    h = acquire_url(url, tmp_path, profile_on, False)
+    assert h.ok and len(fake.downloads) == 1 and len(fake_asr.calls) == 1
+    assert UnitPaths(tmp_path).transcript.exists()
+    assert read_source(tmp_path)["acquisition"] == "asr"
 
 
 def test_public_video_site_still_uses_the_audio_rung(fake_ydl_no_caps, fake_asr, tmp_path, profile_on):
@@ -657,20 +641,15 @@ def test_cli_url_without_consent_exits_3(tmp_cfg, fake_ydl_no_caps, fake_asr, tm
     ("https://video.example.com/v/1", {"webpage_url": "https://media.example.edu/Mediasite/Play/1"}),
     ("https://video.example.com/v/2", {"original_url": "https://cdn.example.org/kaltura/p/1"}),
 ], ids=["panopto-path", "echo360-host", "yuja-host", "zoom-host", "mediasite-webpage-url", "kaltura-original-url"])
-def test_capture_platform_is_recognised_by_address(monkeypatch, fake_asr, tmp_path, profile_on, url, extra):
-    assert profile_on.public_video_audio == "on" and profile_on.public_video_audio_consent
-    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": "Generic", **extra})
-    with pytest.raises(NeedsUserFile) as exc:
-        acquire_url(url, tmp_path, profile_on, False)
-    assert str(exc.value) == CAPTURE_MESSAGE
-    assert fake.downloads == [] and not any("format" in o for o in fake.all_opts)
-    assert fake_asr.calls == []
+def test_capture_platform_is_recognised_by_address(url, extra):
+    # Recognition now serves one purpose: the address is stored without its tokens.
     assert url_module.is_capture_platform(url, {**info(), "extractor_key": "Generic", **extra})
 
 
 @pytest.mark.parametrize("url", ["https://zoomtube.example.com/v/1", "https://www.example.com/watch?v=1"])
 def test_similar_names_are_not_capture_platforms(monkeypatch, fake_asr, tmp_path, profile_on, url):
     fake = _install(monkeypatch, {**info(lang="en", duration=2400.0), "extractor_key": "Generic"})
+    assert not url_module.is_capture_platform(url, {**info(), "extractor_key": "Generic"})
     h = acquire_url(url, tmp_path, profile_on, False)
     assert h.ok and len(fake.downloads) == 1 and len(fake_asr.calls) == 1
     assert read_source(tmp_path)["acquisition"] == "asr"

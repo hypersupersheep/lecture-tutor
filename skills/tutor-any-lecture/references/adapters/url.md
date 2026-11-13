@@ -43,7 +43,7 @@ Because source.json has `"kind": "url"` and the `url`, every timestamp in explan
 
 `tutor-any-lecture profile set public_video_audio on` prints this notice and exits 3 without changing anything:
 
-> Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded.
+> Turning this on lets tutor-any-lecture download the audio track of a video (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. The choice and the responsibility are yours for every address you give, a school's or a meeting platform's recordings included: check that you are allowed to download it, and follow its site's terms and copyright; use it for personal study only. The tool uses no cookies and no login, so a recording behind a sign-in is out of reach, and DRM is never circumvented.
 
 Only after the learner agrees, run `tutor-any-lecture profile set public_video_audio on --i-understand`: it records the day in profile.yaml as `public_video_audio_consent`. Audio is downloaded only while the switch is on and that consent is recorded; a switch turned on by hand in profile.yaml without it makes `acquire url` print the notice and exit 3 without downloading anything.
 

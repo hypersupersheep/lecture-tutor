@@ -47,7 +47,7 @@ In file order, with defaults:
 
 `tutor-any-lecture profile set public_video_audio on` prints this notice and exits 3, writing nothing:
 
-> Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded.
+> Turning this on lets tutor-any-lecture download the audio track of a video (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. The choice and the responsibility are yours for every address you give, a school's or a meeting platform's recordings included: check that you are allowed to download it, and follow its site's terms and copyright; use it for personal study only. The tool uses no cookies and no login, so a recording behind a sign-in is out of reach, and DRM is never circumvented.
 
 Show the notice to the learner. Only after they have read it and agreed, rerun with `--i-understand`: `tutor-any-lecture profile set public_video_audio on --i-understand`. That sets `public_video_audio: on` and records the day in profile.yaml as `public_video_audio_consent: 'YYYY-MM-DD'`. Never turn it on for the learner, and never pass `--i-understand` on your own initiative. Turning it off needs no consent and removes the recorded day.
 
