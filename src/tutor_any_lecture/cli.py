@@ -134,17 +134,22 @@ def _cmd_doctor(args) -> int:
 def _run_acquire(call) -> int:
     """Run one acquisition and print its one-line JSON result.
 
-    ``call`` takes no arguments and returns a ``Health``. A ``ValueError`` (an empty
-    transcript, malformed or non-UTF-8 input), an ``AcquireError`` (a failed tool or
-    ASR backend) or a ``FileNotFoundError`` (a missing input) becomes
-    ``{"status": "error", ...}``. Other exceptions propagate to ``main``, which maps
-    them through ``EXIT_BY_ERROR``.
+    ``call`` takes no arguments and returns a ``Health``; a command that needs the profile
+    loads it inside ``call``. A ``ValueError`` (an empty transcript, malformed or non-UTF-8
+    input), an ``AcquireError`` (a failed tool or ASR backend), a ``ProfileError`` (a
+    malformed profile.yaml) or an ``OSError`` (a missing or unreadable input, a folder
+    given as a file) becomes ``{"status": "error", ...}`` with exit 1. ``FileExistsError``
+    (rerun with ``--force``) and the other requests for action propagate to the caller
+    and then to ``main``, which maps them through ``EXIT_BY_ERROR``.
     """
+    from .profile import ProfileError
     from .transcript import AcquireError
 
     try:
         h = call()
-    except (ValueError, AcquireError, FileNotFoundError) as e:
+    except FileExistsError:
+        raise
+    except (ValueError, AcquireError, ProfileError, OSError) as e:
         _print_json({"status": "error", "message": str(e)})
         return EXIT_FAIL
     status = "ok" if h.ok else "unhealthy"
@@ -170,9 +175,10 @@ def _cmd_acquire_local(args) -> int:
     from .acquire.local import acquire_local
     from .profile import load_profile
 
-    profile = load_profile()
     return _run_acquire(
-        lambda: acquire_local(Path(args.file), Path(args.unit), profile, args.force, budget_minutes=args.budget_minutes)
+        lambda: acquire_local(
+            Path(args.file), Path(args.unit), load_profile(), args.force, budget_minutes=args.budget_minutes
+        )
     )
 
 
@@ -180,10 +186,11 @@ def _cmd_acquire_url(args) -> int:
     from .acquire.url import NeedsUserFile, acquire_url
     from .profile import ConsentRequired, load_profile
 
-    profile = load_profile()
     try:
         return _run_acquire(
-            lambda: acquire_url(args.url, Path(args.unit), profile, args.force, budget_minutes=args.budget_minutes)
+            lambda: acquire_url(
+                args.url, Path(args.unit), load_profile(), args.force, budget_minutes=args.budget_minutes
+            )
         )
     except NeedsUserFile as e:
         _print_json({"status": "needs_user_file", "message": str(e)})
@@ -211,10 +218,9 @@ def _cmd_transcribe(args) -> int:
     from .acquire.local import transcribe_audio
     from .profile import load_profile
 
-    profile = load_profile()
     return _run_acquire(
         lambda: transcribe_audio(
-            Path(args.audio), Path(args.unit), profile, args.force,
+            Path(args.audio), Path(args.unit), load_profile(), args.force,
             budget_minutes=args.budget_minutes, backend=args.backend, model=args.model,
         )
     )

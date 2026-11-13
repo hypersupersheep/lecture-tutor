@@ -18,7 +18,7 @@ from tutor_any_lecture import asr, ffmpeg
 
 from ..profile import PUBLIC_VIDEO_AUDIO_NOTICE, ConsentRequired, Profile, has_audio_consent
 from ..slides import load_pages, slide_terms
-from ..source import SourceInfo, slide_digests
+from ..source import SourceInfo, slide_digests, url_without_tokens
 from ..transcript import (
     AcquireError,
     EmptyTranscript,
@@ -30,8 +30,8 @@ from ..transcript import (
     parse_vtt,
     primary_subtag,
 )
-from ..unit import UnitPaths
-from .local import refuse_overwrite, temp_dir
+from ..unit import UnitPaths, refuse_overwrite
+from .local import temp_dir
 
 # Every options dict starts from these (through _opts), so yt-dlp writes nothing on stdout
 # (the CLI prints exactly one JSON object there) and never expands a playlist.
@@ -50,10 +50,14 @@ _JS_RUNTIMES = ("deno", "node")
 # platforms. Their owners decide whether recordings may be downloaded, so audio is never
 # fetched from them, whatever the profile says: only their captions are used.
 CAPTURE_PLATFORMS = ("panopto", "kaltura", "mediasite", "echo360", "yuja", "opencast", "zoom")
+# The same platforms recognised by address, for the ones yt-dlp has no extractor for and
+# for self-hosted sites that resolve to the generic extractor: a host or path containing
+# one of these words, or a Zoom host (the bare word "zoom" would also match unrelated sites).
+CAPTURE_ADDRESS_WORDS = ("panopto", "kaltura", "mediasite", "echo360", "yuja", "opencast")
+ZOOM_HOSTS = ("zoom.us", "zoom.com", "zoomgov.com")
 CAPTURE_MESSAGE = (
     "this platform's recordings are not downloaded: use its captions, or a file its owner lets you download"
 )
-
 
 
 def _opts(**extra) -> dict:
@@ -61,10 +65,31 @@ def _opts(**extra) -> dict:
     return {**_BASE_OPTS, "js_runtimes": {name: {} for name in _JS_RUNTIMES}, **extra}
 
 
-def is_capture_platform(info: dict) -> bool:
-    """True when the extractor yt-dlp chose belongs to a lecture-capture or meeting platform."""
+def _is_capture_address(address) -> bool:
+    """True when ``address`` points at a lecture-capture or meeting platform."""
+    if not isinstance(address, str) or not address.strip():
+        return False
+    try:
+        parts = urlsplit(address.strip())
+        host, path = (parts.hostname or "").lower(), parts.path.lower()
+    except ValueError:
+        # An address urlsplit cannot read: search all of it rather than let it through.
+        host = path = address.lower()
+    if any(word in host or word in path for word in CAPTURE_ADDRESS_WORDS):
+        return True
+    return any(host == zoom or host.endswith("." + zoom) for zoom in ZOOM_HOSTS)
+
+
+def is_capture_platform(url: str, info: dict) -> bool:
+    """True when the run reaches a lecture-capture or meeting platform.
+
+    Decided by the extractor yt-dlp chose, or by an address: the URL the learner gave and
+    the metadata's ``webpage_url`` and ``original_url``.
+    """
     key = (info.get("extractor_key") or info.get("extractor") or "").lower()
-    return key.startswith(CAPTURE_PLATFORMS)
+    if key.startswith(CAPTURE_PLATFORMS):
+        return True
+    return any(_is_capture_address(a) for a in (url, info.get("webpage_url"), info.get("original_url")))
 
 
 # Colour codes yt-dlp may put around "ERROR:" when stderr is a terminal.
@@ -267,6 +292,9 @@ def acquire_url(
     if info.get("_type") == "playlist" or "entries" in info:
         raise AcquireError("this URL is a playlist; pass the URL of one video")
     duration = info.get("duration")
+    capture = is_capture_platform(url, info)
+    # A capture platform's address may carry an access token: it is stored cleaned.
+    stored_url = url_without_tokens(url) if capture else url
 
     # Caption rungs: the picked track, then (after a broken manual track) the
     # original-language automatic track. Each tried track is (kind, lang, segments, health).
@@ -284,16 +312,15 @@ def acquire_url(
     healthy = [t for t in tried if t[3].ok]
     if healthy:
         kind, lang, segments, h = healthy[0]
-        _write(paths, info, url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
+        _write(paths, info, stored_url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
         return h
 
     # The audio rung, when it may run. Otherwise the best unhealthy track is kept and
     # reported (the command exits 1); with no track at all the learner must bring a file.
-    capture = is_capture_platform(info)
     if capture or profile.public_video_audio != "on":
         if tried:
             kind, lang, segments, h = max(tried, key=lambda t: t[3].coverage)
-            _write(paths, info, url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
+            _write(paths, info, stored_url, duration, Transcript(segments, primary_subtag(lang)), kind, h)
             return h
         raise NeedsUserFile(CAPTURE_MESSAGE if capture else None)
     if not has_audio_consent(profile):
@@ -303,14 +330,14 @@ def acquire_url(
     if not transcript.segments:
         raise EmptyTranscript("no timed segments found")
     h = health(transcript.segments, duration)
-    _write(paths, info, url, duration, transcript, "asr", h)
+    _write(paths, info, stored_url, duration, transcript, "asr", h)
     return h
 
 
 def _write(
     paths: UnitPaths,
     info: dict,
-    url: str,
+    url: str | None,
     duration: float | None,
     transcript: Transcript,
     acquisition: str,
@@ -324,7 +351,7 @@ def _write(
         versions["asr_device"] = getattr(transcript, "device", None)
     SourceInfo(
         kind="url",
-        title=info.get("title") or url,
+        title=info.get("title") or url or "",
         url=url,
         platform=(info.get("extractor_key") or "").lower() or None,
         duration=duration,

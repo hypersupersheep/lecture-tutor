@@ -270,3 +270,33 @@ def test_stdout_json_is_ascii(tmp_path, capsys):
     plan = json.loads(out)
     assert "课程 资料" in plan["steps"][0]["argv"][3]
     assert plan["files"]["slides"] == [str(folder.resolve() / "a.pdf")]
+
+
+@pytest.mark.parametrize("command", [
+    ["acquire", "url", "--url", "https://video.example.com/v/1"],
+    ["acquire", "local", "--file", "lecture.mp4"],
+    ["transcribe", "--audio", "lecture.wav"],
+], ids=["url", "local", "transcribe"])
+def test_acquire_with_malformed_profile_is_error_json(tmp_cfg, tmp_path, monkeypatch, capsys, command):
+    import yt_dlp
+
+    from tutor_any_lecture.config import config_dir
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("the profile is read before yt-dlp is touched")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", no_network)
+    path = config_dir() / "profile.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("- not\n- a mapping\n", encoding="utf-8", newline="\n")
+    (tmp_path / "lecture.mp4").write_bytes(b"")
+    (tmp_path / "lecture.wav").write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    assert main([*command, "--unit", str(tmp_path / "unit")]) == 1
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert len(lines) == 1
+    out = json.loads(lines[0])
+    assert out["status"] == "error" and "profile.yaml" in out["message"]
+    assert captured.err == ""
+    assert not (tmp_path / "unit").exists()

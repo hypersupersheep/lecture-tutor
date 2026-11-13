@@ -19,7 +19,7 @@ from ..ffmpeg import extract_audio, media_duration
 from ..profile import Profile
 from ..source import SourceInfo, sha256_file, slide_digests
 from ..transcript import AcquireError, EmptyTranscript, Health, health
-from ..unit import UnitPaths
+from ..unit import UnitPaths, refuse_overwrite
 
 # The tool's temporary folders sit under one parent in the system temp folder: on POSIX
 # "tutor-any-lecture-<uid>", private to the user (mode 0700); on Windows, where the
@@ -117,16 +117,6 @@ def temp_dir():
             print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
         elif own_parent is not None:
             shutil.rmtree(own_parent, ignore_errors=True)
-
-
-def refuse_overwrite(unit: Path, force: bool) -> None:
-    """The overwrite guard every acquisition calls first, before it reads its input.
-
-    Keyed on transcript.json only: a slides-only source.json may be replaced freely.
-    """
-    transcript = UnitPaths(unit).transcript
-    if transcript.exists() and not force:
-        raise FileExistsError(f"{transcript} already exists; rerun with --force to replace it")
 
 
 def _require_file(path: Path) -> None:

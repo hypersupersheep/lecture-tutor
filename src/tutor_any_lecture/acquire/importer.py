@@ -19,8 +19,7 @@ from ..transcript import (
     parse_vtt,
     parse_whisper_json,
 )
-from ..unit import UnitPaths
-from .local import refuse_overwrite
+from ..unit import UnitPaths, refuse_overwrite
 
 
 def _media_seconds(media: Path) -> float:

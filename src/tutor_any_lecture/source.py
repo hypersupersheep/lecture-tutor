@@ -7,6 +7,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from .plan import read_json
 
@@ -113,3 +114,19 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def url_without_tokens(url) -> str | None:
+    """A lecture-capture address without what could grant access to it, for source.json.
+
+    Scheme, host and path stay, with the ``id`` query parameter only: tokens, other
+    parameters, a user name in the host and the fragment are dropped. ``None`` for an
+    empty or non-text value.
+    """
+    if not isinstance(url, str) or not url.strip():
+        return None
+    parts = urlsplit(url.strip())
+    ids = parse_qs(parts.query).get("id")
+    query = urlencode({"id": ids[0]}) if ids else ""
+    host = parts.netloc.rpartition("@")[2]
+    return urlunsplit((parts.scheme, host, parts.path, query, ""))

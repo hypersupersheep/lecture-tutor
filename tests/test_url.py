@@ -522,13 +522,19 @@ def make_srt(n, step=10, length=9):
     return "\n".join(out)
 
 
-def test_ydl_options_name_both_js_runtimes(fake_ydl_no_caps, fake_asr, tmp_path, profile_on):
-    acquire_url("https://y/x", tmp_path, profile_on, False)
-    # metadata, then audio: every call names both runtimes, and each gets its own dict.
-    assert len(fake_ydl_no_caps.all_opts) >= 2
-    assert all(o["js_runtimes"] == {"deno": {}, "node": {}} for o in fake_ydl_no_caps.all_opts)
-    first, second = fake_ydl_no_caps.all_opts[0], fake_ydl_no_caps.all_opts[1]
-    assert first["js_runtimes"] is not second["js_runtimes"]
+@pytest.mark.parametrize("captions", [False, True], ids=["audio", "one-caption-track"])
+def test_ydl_options_name_both_js_runtimes(monkeypatch, fake_asr, tmp_path, profile_on, captions):
+    if captions:
+        fake = _install(monkeypatch, info(subs={"en": [orig()]}, lang="en"), {("cc", "en"): GOOD_VTT})
+    else:
+        fake = _install(monkeypatch, info(lang="en", duration=2400.0))
+    assert acquire_url("https://y/x", tmp_path, profile_on, False).ok
+    # metadata, then the caption track or the audio: every call names both runtimes.
+    assert len(fake.all_opts) == 2
+    assert ("format" in fake.all_opts[1]) is not captions
+    assert all(o["js_runtimes"] == {"deno": {}, "node": {}} for o in fake.all_opts)
+    # Each call gets its own dict, since yt-dlp may edit it in place.
+    assert len({id(o["js_runtimes"]) for o in fake.all_opts}) == len(fake.all_opts)
 
 
 def test_lone_manual_track_is_used_without_a_language(monkeypatch, tmp_path, profile_off):
@@ -637,3 +643,59 @@ def test_cli_url_without_consent_exits_3(tmp_cfg, fake_ydl_no_caps, fake_asr, tm
     assert captured.out == ""
     assert "personal study only" in captured.err and "--i-understand" in captured.err
     assert fake_ydl_no_caps.downloads == []
+
+
+# ---- Task 25 amendment: capture platforms by address, cleaned addresses ----------
+
+
+@pytest.mark.parametrize("url, extra", [
+    ("https://video.example.edu/Panopto/Pages/Viewer.aspx?id=1", {}),
+    ("https://echo360.example.org/media/1", {}),
+    ("https://example.yuja.com/V/Video?v=1", {}),
+    ("https://example.zoom.us/rec/play/1", {}),
+    ("https://video.example.com/v/1", {"webpage_url": "https://media.example.edu/Mediasite/Play/1"}),
+    ("https://video.example.com/v/2", {"original_url": "https://cdn.example.org/kaltura/p/1"}),
+], ids=["panopto-path", "echo360-host", "yuja-host", "zoom-host", "mediasite-webpage-url", "kaltura-original-url"])
+def test_capture_platform_is_recognised_by_address(monkeypatch, fake_asr, tmp_path, profile_on, url, extra):
+    assert profile_on.public_video_audio == "on" and profile_on.public_video_audio_consent
+    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": "Generic", **extra})
+    with pytest.raises(NeedsUserFile) as exc:
+        acquire_url(url, tmp_path, profile_on, False)
+    assert str(exc.value) == CAPTURE_MESSAGE
+    assert fake.downloads == [] and not any("format" in o for o in fake.all_opts)
+    assert fake_asr.calls == []
+    assert url_module.is_capture_platform(url, {**info(), "extractor_key": "Generic", **extra})
+
+
+@pytest.mark.parametrize("url", ["https://zoomtube.example.com/v/1", "https://www.example.com/watch?v=1"])
+def test_similar_names_are_not_capture_platforms(monkeypatch, fake_asr, tmp_path, profile_on, url):
+    fake = _install(monkeypatch, {**info(lang="en", duration=2400.0), "extractor_key": "Generic"})
+    h = acquire_url(url, tmp_path, profile_on, False)
+    assert h.ok and len(fake.downloads) == 1 and len(fake_asr.calls) == 1
+    assert read_source(tmp_path)["acquisition"] == "asr"
+
+
+def test_zoom_hosts_match_exactly_or_as_a_subdomain():
+    for url in ["https://zoom.us/rec/1", "https://ZOOM.com/rec/1", "https://x.zoomgov.com/rec/1"]:
+        assert url_module.is_capture_platform(url, info() | {"extractor_key": "Generic"}), url
+    for url in ["https://notzoom.us/rec/1", "https://zoom.us.example.com/rec/1", "https://x.example/zoom/1"]:
+        assert not url_module.is_capture_platform(url, info() | {"extractor_key": "Generic"}), url
+
+
+def test_capture_platform_url_is_stored_without_tokens(monkeypatch, tmp_path, profile_off):
+    url = "https://user@x.example/Panopto/Pages/Viewer.aspx?id=abc&token=SECRET#t=5"
+    _install(monkeypatch, {**info(subs={"en": [orig()]}, lang="en"), "extractor_key": "Generic", "title": None},
+             {("cc", "en"): GOOD_VTT})
+    assert acquire_url(url, tmp_path, profile_off, False).ok
+    src = read_source(tmp_path)
+    assert src["url"] == "https://x.example/Panopto/Pages/Viewer.aspx?id=abc"
+    # The title falls back to the address: the cleaned one.
+    assert src["title"] == src["url"]
+    assert "SECRET" not in UnitPaths(tmp_path).source.read_text(encoding="utf-8")
+
+    # Any other address is stored as given.
+    public = "https://www.example.com/watch?v=1&t=5#frag"
+    other = tmp_path / "public"
+    _install(monkeypatch, info(subs={"en": [orig()]}, lang="en"), {("cc", "en"): GOOD_VTT})
+    assert acquire_url(public, other, profile_off, False).ok
+    assert read_source(other)["url"] == public

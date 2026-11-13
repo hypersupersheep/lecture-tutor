@@ -197,6 +197,16 @@ def test_cli_import_missing_file_is_error_json(tmp_path, capsys):
     assert not UnitPaths(unit).transcript.exists()
 
 
+def test_cli_import_directory_as_file_is_error_json(tmp_path, capsys):
+    folder = tmp_path / "lecture.srt"
+    folder.mkdir()
+    unit = tmp_path / "u"
+    code = main(["acquire", "import", "--file", str(folder), "--unit", str(unit)])
+    assert code == 1
+    assert_error_json(capsys.readouterr().out)
+    assert not UnitPaths(unit).transcript.exists()
+
+
 # ---- Task 25: slide digest, media duration -------------------------------------
 
 

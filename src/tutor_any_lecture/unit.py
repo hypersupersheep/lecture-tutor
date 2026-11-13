@@ -71,3 +71,13 @@ class UnitPaths:
         """Create ``sources/slides/`` (and its parents) and return ``self``."""
         (self.root / "sources" / "slides").mkdir(parents=True, exist_ok=True)
         return self
+
+
+def refuse_overwrite(unit: Path, force: bool) -> None:
+    """The overwrite guard every acquisition calls first, before it reads its input.
+
+    Keyed on transcript.json only: a slides-only source.json may be replaced freely.
+    """
+    transcript = UnitPaths(unit).transcript
+    if transcript.exists() and not force:
+        raise FileExistsError(f"{transcript} already exists; rerun with --force to replace it")
