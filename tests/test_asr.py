@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,22 @@ def _boom(audio, model, **kwargs):
     raise RuntimeError("boom")
 
 
+def _long_boom(audio, model, **kwargs):
+    raise RuntimeError("\n".join(f"detail {i}" for i in range(10)))
+
+
+def _logging_backend(audio, model, log, fail_on=None, sleep_on=None, **kwargs):
+    """Appends "device model compute_type" to ``log``; fails or sleeps on the device named."""
+    device = kwargs.get("device")
+    with open(log, "a", encoding="utf-8", newline="\n") as f:
+        f.write(f"{device} {model} {kwargs.get('compute_type')}\n")
+    if fail_on == "any" or (fail_on is not None and fail_on == device):
+        raise RuntimeError(f"{device} failed\nsecond line")
+    if sleep_on is not None and sleep_on == device:
+        time.sleep(5)
+    return Transcript([Segment(0.0, 1.0, f"from {device}")], None)
+
+
 def _native_noise(audio, model, **kwargs):
     os.write(1, b"native noise\n")   # what native code does: bypasses sys.stdout
     return Transcript([Segment(0.0, 1.0, "x")], None)
@@ -74,6 +91,21 @@ def run_with_fake_backend(monkeypatch, name="fake"):
     monkeypatch.setattr(asr, "_installed", lambda module: True)
     t = transcribe(Path("unused.wav"), None, PROMPT, budget_minutes=1, backend=name, model="x")
     return json.loads(t.segments[0].text)
+
+
+def install_logging_backend(monkeypatch, tmp_path, name, cuda, **options):
+    """Local helper: registers _logging_backend as ``name``; returns a reader of its calls."""
+    log = tmp_path / "calls.txt"
+    monkeypatch.setitem(asr.BACKENDS, name, functools.partial(_logging_backend, log=str(log), **options))
+    monkeypatch.setattr(asr, "_installed", lambda module: True)
+    monkeypatch.setattr(asr, "_cuda_devices", lambda: 1 if cuda else 0)
+
+    def calls():
+        if not log.exists():
+            return []
+        return [tuple(line.split(" ")) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    return calls
 
 
 def fake_slow_backend(monkeypatch, seconds=5):
@@ -199,7 +231,9 @@ def test_child_error_carries_traceback_tail(monkeypatch):
     monkeypatch.setitem(asr.BACKENDS, "fake", _boom)
     with pytest.raises(AcquireError) as exc:
         transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
-    assert "_boom" in str(exc.value)
+    message = str(exc.value)
+    assert message.startswith("ASR backend 'fake' failed: RuntimeError: boom\n")
+    assert "_boom" in message
 
 
 def test_child_native_stdout_goes_to_stderr(monkeypatch, capfd):
@@ -263,5 +297,85 @@ def test_child_error_line_appears_once(monkeypatch):
     with pytest.raises(AcquireError) as exc:
         transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
     message = str(exc.value)
+    assert message.startswith("ASR backend 'fake' failed: RuntimeError: boom\n")
     assert message.count("RuntimeError: boom") == 1
     assert "_boom" in message
+
+
+def test_child_error_keeps_the_type_for_a_long_message(monkeypatch):
+    monkeypatch.setitem(asr.BACKENDS, "fake", _long_boom)
+    with pytest.raises(AcquireError) as exc:
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
+    message = str(exc.value)
+    # Only the first line of a ten-line message, after its type; then the frame lines.
+    assert message.startswith("ASR backend 'fake' failed: RuntimeError: detail 0\n")
+    assert message.count("RuntimeError: detail") == 1
+    assert "detail 1" not in message and "detail 9" not in message
+    assert "_long_boom" in message
+    assert len(message.splitlines()) <= 6
+
+
+def test_cuda_failure_retries_on_cpu(monkeypatch, tmp_path, capfd):
+    calls = install_logging_backend(monkeypatch, tmp_path, "faster", cuda=True, fail_on="cuda")
+    t = transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    assert [s.text for s in t.segments] == ["from cpu"]
+    assert t.device == "cpu"
+    # The model is the one the CPU path chooses, with the CPU's compute type.
+    assert calls() == [("cuda", "large-v3-turbo", "float16"), ("cpu", "small", "int8")]
+    err = capfd.readouterr().err
+    assert "warning: GPU transcription failed (RuntimeError: cuda failed); retrying on the CPU\n" in err
+    assert err.count("retrying on the CPU") == 1
+
+
+def test_cuda_retry_keeps_a_named_model(monkeypatch, tmp_path, capfd):
+    calls = install_logging_backend(monkeypatch, tmp_path, "faster", cuda=True, fail_on="cuda")
+    transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster", model="medium")
+    assert calls() == [("cuda", "medium", "float16"), ("cpu", "medium", "int8")]
+
+
+def test_cpu_failure_is_not_retried(monkeypatch, tmp_path, capfd):
+    calls = install_logging_backend(monkeypatch, tmp_path, "faster", cuda=False, fail_on="cpu")
+    with pytest.raises(AcquireError, match="RuntimeError: cpu failed"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    assert calls() == [("cpu", "small", "int8")]
+    assert "retrying" not in capfd.readouterr().err
+
+
+def test_mlx_failure_is_not_retried(monkeypatch, tmp_path, capfd):
+    calls = install_logging_backend(monkeypatch, tmp_path, "mlx", cuda=True, fail_on="any")
+    with pytest.raises(AcquireError, match="RuntimeError: None failed"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="mlx", model="x")
+    assert len(calls()) == 1
+    assert "retrying" not in capfd.readouterr().err
+
+
+def test_mlx_and_cpu_devices_are_reported(monkeypatch, tmp_path):
+    install_logging_backend(monkeypatch, tmp_path, "mlx", cuda=False)
+    assert transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="mlx", model="x").device == "mlx"
+    install_logging_backend(monkeypatch, tmp_path, "faster", cuda=False)
+    assert transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster").device == "cpu"
+
+
+def test_cuda_dying_child_retries_on_cpu(monkeypatch, capfd):
+    monkeypatch.setitem(asr.BACKENDS, "faster", _dying_backend)
+    monkeypatch.setattr(asr, "_installed", lambda module: True)
+    monkeypatch.setattr(asr, "_cuda_devices", lambda: 1)
+    with pytest.raises(AcquireError, match="without a result"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    err = capfd.readouterr().err
+    assert "warning: GPU transcription failed (the ASR process exited without a result (exit code 7)); " \
+           "retrying on the CPU" in err
+
+
+def test_budget_covers_both_attempts(monkeypatch, tmp_path):
+    calls = install_logging_backend(monkeypatch, tmp_path, "faster", cuda=True, fail_on="cuda", sleep_on="cpu")
+
+    def clock():
+        # 59.5 s of the 60 s budget are gone once the CUDA attempt has run.
+        return 59.5 if calls() else 0.0
+
+    monkeypatch.setattr(asr, "time", types.SimpleNamespace(monotonic=clock))
+    started = time.monotonic()
+    with pytest.raises(BudgetExceeded, match="1 minutes"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    assert time.monotonic() - started < 5      # the CPU attempt got the 0.5 s left, not a new minute

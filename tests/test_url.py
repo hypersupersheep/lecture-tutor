@@ -196,7 +196,7 @@ def fake_asr(monkeypatch):
             "initial_prompt": initial_prompt,
             "budget_minutes": budget_minutes,
         })
-        return Transcript([Segment(i * 40.0, i * 40.0 + 39.0, f"line {i}") for i in range(60)], "en")
+        return asr.AsrTranscript([Segment(i * 40.0, i * 40.0 + 39.0, f"line {i}") for i in range(60)], "en", device="mlx")
 
     fake.calls = calls
     monkeypatch.setattr(asr, "transcribe", fake)
@@ -297,6 +297,7 @@ def test_audio_format_is_bestaudio_only(fake_ydl_no_caps, fake_asr, tmp_path, pr
     assert all(o["format"] == "bestaudio" for o in fake_ydl_no_caps.all_opts if "format" in o)
     src = read_source(tmp_path)
     assert h.ok and (src["kind"], src["acquisition"], src["lecture_language"]) == ("url", "asr", "en")
+    assert src["tool_versions"]["asr_device"] == "mlx"
 
 
 def test_no_audio_only_format_needs_user_file(monkeypatch, fake_asr, tmp_path, profile_on):

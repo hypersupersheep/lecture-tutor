@@ -282,6 +282,10 @@ def _write(
 ) -> None:
     paths.ensure()
     paths.transcript.write_text(transcript.to_json(), encoding="utf-8", newline="\n")
+    versions = {"yt-dlp": yt_dlp.version.__version__}
+    if acquisition == "asr":
+        # The device asr.transcribe reports: "cuda", "cpu" or "mlx".
+        versions["asr_device"] = getattr(transcript, "device", None)
     SourceInfo(
         kind="url",
         title=info.get("title") or url,
@@ -291,6 +295,6 @@ def _write(
         lecture_language=transcript.language,
         acquisition=acquisition,
         health=dataclasses.asdict(h),
-        tool_versions={"yt-dlp": yt_dlp.version.__version__},
+        tool_versions=versions,
         inputs_sha256={},
     ).write(paths.source)

@@ -102,14 +102,15 @@ def _transcribe_into_unit(
         lecture_language=transcript.language,
         acquisition="asr",
         health=dataclasses.asdict(h),
-        tool_versions=_tool_versions(name, model),
+        tool_versions=_tool_versions(name, model, getattr(transcript, "device", None)),
         inputs_sha256={origin.name: sha256_file(origin)},
     ).write(paths.source)
     return h
 
 
-def _tool_versions(name: str, model: str | None) -> dict:
-    versions = {"asr_backend": name, "asr_model": model}
+def _tool_versions(name: str, model: str | None, device: str | None) -> dict:
+    # device: what asr.transcribe reports (an AsrTranscript); None for any other transcript.
+    versions = {"asr_backend": name, "asr_model": model, "asr_device": device}
     package = asr.BACKEND_PACKAGES.get(name)
     if package is not None:
         try:

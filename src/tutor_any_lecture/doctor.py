@@ -153,7 +153,8 @@ def check_asr_backend() -> tuple[bool, str]:
     # select_backend probes with find_spec; it never imports a backend (mlx may abort on import).
     from . import asr
 
-    return True, asr.select_backend()
+    backend = asr.select_backend()
+    return True, f"{backend} (device: {asr.select_device(backend)})"
 
 
 def check_yt_dlp() -> tuple[bool, str]:

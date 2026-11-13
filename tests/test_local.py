@@ -46,7 +46,7 @@ class FakeASR:
                            "backend": backend, "model": model})
         if self.error is not None:
             raise self.error
-        return Transcript(list(self.segments), "en")
+        return asr.AsrTranscript(list(self.segments), "en", device="cpu")
 
 
 def install_fake_asr(monkeypatch, **kwargs):
@@ -99,6 +99,7 @@ def test_local_writes_source_and_language(monkeypatch, tmp_path):
     assert source["inputs_sha256"] == {"tone.wav": sha256_file(src)}
     assert source["health"]["ok"] is True
     assert source["tool_versions"]["asr_backend"] == "fake"
+    assert source["tool_versions"]["asr_device"] == "cpu"
 
 
 def test_local_passes_slide_terms_as_prompt(monkeypatch, tmp_path):

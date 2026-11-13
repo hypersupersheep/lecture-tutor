@@ -15,7 +15,9 @@ import os
 import platform
 import subprocess
 import sys
+import time
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -38,6 +40,16 @@ NO_BACKEND = (
 
 class BudgetExceeded(Exception):
     """Transcription did not finish within the time budget."""
+
+
+@dataclass
+class AsrTranscript(Transcript):
+    """A transcript from ASR, with the device that produced it.
+
+    ``device`` is "cuda", "cpu" or "mlx" for the real backends, None for any other.
+    """
+
+    device: str | None = None
 
 
 # --- audio --------------------------------------------------------------------
@@ -83,11 +95,13 @@ def _mlx_backend(audio: str, model: str | None, **kwargs) -> Transcript:
     return Transcript(segments, result.get("language"))
 
 
-def _faster_backend(audio: str, model: str | None, **kwargs) -> Transcript:
+def _faster_backend(
+    audio: str, model: str | None, device: str = "cpu", compute_type: str = "int8", **kwargs
+) -> Transcript:
     from faster_whisper import WhisperModel
 
-    cuda = _cuda_devices() > 0
-    whisper = WhisperModel(model, device="cuda" if cuda else "cpu", compute_type="float16" if cuda else "int8")
+    # The parent picks the device, so that it can retry on the CPU when CUDA fails.
+    whisper = WhisperModel(model, device=device, compute_type=compute_type)
     options = dict(kwargs)
     options["initial_prompt"] = options.get("initial_prompt") or None
     generator, info = whisper.transcribe(audio, **options)
@@ -164,13 +178,27 @@ def _cuda_devices() -> int:
         return 0
 
 
+# faster-whisper's default model and compute type on each device.
+_FASTER_MODELS = {"cuda": "large-v3-turbo", "cpu": "small"}
+_FASTER_COMPUTE = {"cuda": "float16", "cpu": "int8"}
+
+
+def select_device(backend: str) -> str | None:
+    """The device ``backend`` runs on here: "mlx", "cuda" or "cpu"; None for another backend."""
+    if backend == "mlx":
+        return "mlx"
+    if backend == "faster":
+        return "cuda" if _cuda_devices() > 0 else "cpu"
+    return None
+
+
 def select_model(backend: str) -> str:
     if backend == "mlx":
         if _ram_bytes() >= 16 * GIB:
             return "mlx-community/whisper-large-v3-turbo"
         return "mlx-community/whisper-small-mlx"
     if backend == "faster":
-        return "large-v3-turbo" if _cuda_devices() > 0 else "small"
+        return _FASTER_MODELS[select_device(backend)]
     raise BackendMissing(f"no default model for ASR backend {backend!r}")
 
 
@@ -195,6 +223,18 @@ def default_budget_minutes(duration_s: float | None) -> float:
 
 # --- transcription --------------------------------------------------------------
 
+def _error_text(error: BaseException) -> str:
+    """``Type: first line of the message``, then the traceback's last five frame lines.
+
+    The traceback's own final ``Type: message`` line is left out, so the type and the
+    message appear once, first, however many lines the message has.
+    """
+    lines = str(error).splitlines()
+    head = f"{type(error).__name__}: {lines[0]}" if lines else type(error).__name__
+    frames = "".join(traceback.format_tb(error.__traceback__)).splitlines()[-5:]
+    return "\n".join([head, *frames])
+
+
 def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> None:
     """The spawn child: run one backend and send ``("ok", transcript)`` or ``("err", message)``."""
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -207,35 +247,24 @@ def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> N
         pass
     try:
         conn.send(("ok", fn(audio, model, **kwargs)))
-    except Exception:  # every backend failure goes back to the parent as a message
-        # The tail ends with the "Type: message" line, so it is not repeated in front.
-        conn.send(("err", "\n".join(traceback.format_exc().splitlines()[-5:])))
+    except Exception as e:  # every backend failure goes back to the parent as a message
+        conn.send(("err", _error_text(e)))
     finally:
         conn.close()
 
 
-def transcribe(
-    audio: Path,
-    language: str | None,
-    initial_prompt: str,
-    budget_minutes: float,
-    backend: str | None = None,
-    model: str | None = None,
-) -> Transcript:
-    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-    name, model = resolve_backend(backend, model)
-    fn = BACKENDS[name]
-    lang = primary_subtag(language)
-    kwargs = {
-        "language": lang,
-        "initial_prompt": initial_prompt,
-        "condition_on_previous_text": False,
-        "word_timestamps": True,
-        "hallucination_silence_threshold": 2,
-    }
-    if name == "faster":
-        kwargs["vad_filter"] = True
+def _run_child(
+    fn: Callable, audio: Path, model: str | None, kwargs: dict, deadline: float, budget_minutes: float
+) -> tuple[str, object]:
+    """Run ``fn`` once in a spawn child, until ``deadline`` (a ``time.monotonic`` reading).
 
+    Returns ``("ok", transcript)``, ``("err", message)`` for a backend error, or
+    ``("died", message)`` when the child exits without a result. Raises ``BudgetExceeded``
+    when the deadline passes; the child is ended in every case.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise BudgetExceeded(_over_budget(budget_minutes))
     ctx = multiprocessing.get_context("spawn")
     reader, writer = ctx.Pipe(duplex=False)
     proc = ctx.Process(target=_child, args=(fn, str(audio), model, kwargs, writer))
@@ -245,16 +274,13 @@ def transcribe(
         started = True
         # Close the parent's copy of the child's end, so a child that dies gives EOF, not a hang.
         writer.close()
-        if not reader.poll(budget_minutes * 60):
-            raise BudgetExceeded(
-                f"transcription did not finish within {budget_minutes:g} minutes; "
-                "rerun with a larger --budget-minutes"
-            )
+        if not reader.poll(remaining):
+            raise BudgetExceeded(_over_budget(budget_minutes))
         try:
-            status, payload = reader.recv()  # recv before join: a large reply would block the child
+            result = reader.recv()  # recv before join: a large reply would block the child
         except EOFError:
             proc.join()
-            raise AcquireError(f"the ASR process exited without a result (exit code {proc.exitcode})") from None
+            result = ("died", f"the ASR process exited without a result (exit code {proc.exitcode})")
         proc.join(timeout=30)
     finally:
         writer.close()  # closing twice is a no-op
@@ -263,8 +289,60 @@ def transcribe(
             if proc.is_alive():
                 proc.kill()
             proc.join()
+    return result
 
+
+def _over_budget(budget_minutes: float) -> str:
+    return (
+        f"transcription did not finish within {budget_minutes:g} minutes; "
+        "rerun with a larger --budget-minutes"
+    )
+
+
+def transcribe(
+    audio: Path,
+    language: str | None,
+    initial_prompt: str,
+    budget_minutes: float,
+    backend: str | None = None,
+    model: str | None = None,
+) -> AsrTranscript:
+    """Transcribe ``audio`` in a child process within ``budget_minutes``.
+
+    A failed CUDA run of the ``faster`` backend is retried once on the CPU, within the
+    same budget. The result records the device that produced it.
+    """
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    name, model = resolve_backend(backend, model)
+    fn = BACKENDS[name]
+    lang = primary_subtag(language)
+    device = select_device(name)
+    kwargs = {
+        "language": lang,
+        "initial_prompt": initial_prompt,
+        "condition_on_previous_text": False,
+        "word_timestamps": True,
+        "hallucination_silence_threshold": 2,
+    }
+    if name == "faster":
+        kwargs["vad_filter"] = True
+        kwargs.update(device=device, compute_type=_FASTER_COMPUTE[device])
+
+    deadline = time.monotonic() + budget_minutes * 60  # one budget for every attempt
+    status, payload = _run_child(fn, audio, model, kwargs, deadline, budget_minutes)
+    if status != "ok" and name == "faster" and device == "cuda":
+        first = str(payload).splitlines()[0] if str(payload) else ""
+        print(f"warning: GPU transcription failed ({first}); retrying on the CPU", file=sys.stderr)
+        device = "cpu"
+        # The model the CPU path would choose: its default replaces the CUDA default; a named model stays.
+        if model == _FASTER_MODELS["cuda"]:
+            model = _FASTER_MODELS["cpu"]
+        kwargs.update(device=device, compute_type=_FASTER_COMPUTE[device])
+        status, payload = _run_child(fn, audio, model, kwargs, deadline, budget_minutes)
+
+    if status == "died":
+        raise AcquireError(payload)
     if status != "ok":
         raise AcquireError(f"ASR backend {name!r} failed: {payload}")
     reported = lang if lang is not None else primary_subtag(payload.language)
-    return Transcript(payload.segments, reported)
+    return AsrTranscript(payload.segments, reported, device=device)
