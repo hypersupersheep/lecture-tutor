@@ -5,21 +5,36 @@
 # It never downloads a script to run it; uv or pip fetch the package itself.
 # Works in Windows PowerShell 5.1 and PowerShell 7.
 #
+# Usage:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [options]
+#
 #   -DryRun          print the plan as PLAN: lines and change nothing
 #   -Yes             never ask for confirmation
-#   -Agents LIST     comma-separated list of claude, codex, agents
+#   -WithAsr         also install speech recognition (the package's asr extra),
+#                    needed only for audio or video without captions
+#   -CliOnly         install the command and record its path, but copy no skill
+#                    folder (cannot be combined with -Agents)
+#   -Agents LIST     comma-separated list of claude, codex, agents, any letter case
 #                    (default: each of them whose home folder exists)
 #   -From PATH|URL   what to install, passed unchanged to uv or pip
-#                    (default: this checkout, else the GitHub repository)
+#                    (default: this checkout, else the GitHub repository at the
+#                    tag v<VERSION>, VERSION being the file in the skill folder)
 #
-# Exit codes: 0 ready, 1 failed or cancelled, 2 bad agent name, 3 needs action.
+# Exit codes: 0 ready, 1 failed or cancelled, 2 bad option, 3 needs action.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$DryRun,
     [switch]$Yes,
+    [switch]$WithAsr,
+    [switch]$CliOnly,
     [string[]]$Agents,
-    [string]$From
+    [string]$From,
+    # Anything else lands here and is refused below with exit code 2.
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Rest
 )
 $ErrorActionPreference = 'Stop'
+$GitHubSource = 'git+https://github.com/hypersupersheep/tutor-any-lecture'
 
 function Say([string]$Message) {
     [Console]::Out.WriteLine($Message)
@@ -41,21 +56,76 @@ function Invoke-Native([string]$What, [string]$Exe, [string[]]$Arguments) {
     }
 }
 
+# ---- options ---------------------------------------------------------------
+if ($Rest -and $Rest.Count -gt 0) {
+    Fail ('install.ps1: unknown option: ' + ($Rest -join ' ') + ' (see the comments at the top of install.ps1).') 2
+}
+if ($CliOnly -and $PSBoundParameters.ContainsKey('Agents')) {
+    Fail 'install.ps1: -CliOnly copies no skill folder, so it cannot be combined with -Agents.' 2
+}
+
 # ---- locate this script ----------------------------------------------------
 # $PSScriptRoot is this script's folder as an absolute path, whatever the
 # caller's current folder. The caller's current folder is never changed.
 $D = $PSScriptRoot
 $SkillSrc = [System.IO.Path]::GetFullPath((Join-Path $D '..'))
+
+# ---- what to install -------------------------------------------------------
+# The skill folder's VERSION names the release tag of the GitHub fallback.
+$Version = ''
+$VersionFile = Join-Path $SkillSrc 'VERSION'
+if (Test-Path -LiteralPath $VersionFile -PathType Leaf) {
+    $Version = ([System.IO.File]::ReadAllText($VersionFile, (New-Object System.Text.UTF8Encoding($false)))).Trim()
+}
 if ($PSBoundParameters.ContainsKey('From')) {
     if ([string]::IsNullOrEmpty($From)) {
         Fail 'install.ps1: -From needs a path or URL.' 2
     }
 } else {
-    if (Test-Path -LiteralPath (Join-Path $D '..\..\..\pyproject.toml') -PathType Leaf) {
-        $From = [System.IO.Path]::GetFullPath((Join-Path $D '..\..\..'))
+    if (Test-Path -LiteralPath (Join-Path $D '../../../pyproject.toml') -PathType Leaf) {
+        $From = [System.IO.Path]::GetFullPath((Join-Path $D '../../..'))
+    } elseif ($Version -ne '') {
+        $From = $GitHubSource + '@v' + $Version
     } else {
-        $From = 'git+https://github.com/hypersupersheep/tutor-any-lecture'
+        $From = $GitHubSource
     }
+}
+
+if ($From -like 'git+*') {
+    if (-not (Get-Command 'git' -CommandType Application -ErrorAction SilentlyContinue)) {
+        Fail "install.ps1: installing from $From needs git, which was not found; get it with 'winget install Git.Git', or pass -From <a checkout or an unpacked download>." 3
+    }
+}
+
+# The file:// URL of an absolute path (C:\..., \\server\share\... or /...), each
+# segment percent-encoded as UTF-8 so spaces and CJK names survive.
+function ConvertTo-FileUrl([string]$Path) {
+    $p = $Path.Replace('\', '/')
+    if ($p.StartsWith('//')) {
+        $p = $p.Substring(2)
+    } elseif (-not $p.StartsWith('/')) {
+        $p = '/' + $p
+    }
+    $parts = @()
+    foreach ($segment in $p.Split('/')) {
+        if ($segment -match '^[A-Za-z]:$') {
+            $parts += $segment
+        } else {
+            $parts += [System.Uri]::EscapeDataString($segment)
+        }
+    }
+    return 'file://' + ($parts -join '/')
+}
+
+# $InstallSpec is what uv or pip installs: the source itself, or with -WithAsr the
+# requirement "tutor-any-lecture[asr] @ <the source as a URL>".
+$InstallSpec = $From
+if ($WithAsr) {
+    $SourceUrl = $From
+    if (($From -notmatch '^[A-Za-z][A-Za-z0-9+.-]+://') -and (Test-Path -LiteralPath $From)) {
+        $SourceUrl = ConvertTo-FileUrl ((Resolve-Path -LiteralPath $From).ProviderPath)
+    }
+    $InstallSpec = 'tutor-any-lecture[asr] @ ' + $SourceUrl
 }
 
 if ([string]::IsNullOrEmpty($env:USERPROFILE)) {
@@ -67,8 +137,11 @@ $HomeDir = $env:USERPROFILE
 # -Agents is a string array; each element is split on ',' so that both
 # `-Agents claude,codex` typed in PowerShell and the single string that
 # `pwsh -File` passes work.
+# With -CliOnly the list stays empty.
 $AgentNames = New-Object System.Collections.Generic.List[string]
-if ($PSBoundParameters.ContainsKey('Agents')) {
+if ($CliOnly) {
+    # no skill folder is copied
+} elseif ($PSBoundParameters.ContainsKey('Agents')) {
     foreach ($element in $Agents) {
         foreach ($part in ([string]$element).Split(',')) {
             $name = $part.Trim().ToLowerInvariant()
@@ -143,14 +216,28 @@ $script:Cli = ''
 # The dry run, the confirmation prompt and the real run all go through these
 # functions, so the printed plan and the real run cannot drift apart.
 
+# The two optional flags, as the plan's first lines.
+function Show-Options {
+    if ($WithAsr) {
+        Say 'PLAN: -WithAsr on (speech recognition is installed)'
+    } else {
+        Say 'PLAN: -WithAsr off (no speech recognition; add it for audio or video without captions)'
+    }
+    if ($CliOnly) {
+        Say 'PLAN: -CliOnly on (the command only; no skill folder is copied)'
+    } else {
+        Say 'PLAN: -CliOnly off'
+    }
+}
+
 # Steps 1 and 2: install the CLI with uv, or into a private venv.
 function Install-Cli([string]$Mode) {
     if ($Method -eq 'uv') {
         if ($Mode -eq 'plan') {
-            Say "PLAN: uv tool install --force $From"
+            Say ('PLAN: uv tool install --force "' + $InstallSpec + '"')
             return
         }
-        Invoke-Native "'uv tool install --force $From'" 'uv' @('tool', 'install', '--force', $From)
+        Invoke-Native "'uv tool install --force $InstallSpec'" 'uv' @('tool', 'install', '--force', $InstallSpec)
         $ErrorActionPreference = 'Continue'
         # uv prints UTF-8; read it as UTF-8 so a non-ASCII user folder survives.
         $saved = [Console]::OutputEncoding
@@ -169,11 +256,11 @@ function Install-Cli([string]$Mode) {
     } else {
         if ($Mode -eq 'plan') {
             Say "PLAN: python -m venv $Venv"
-            Say "PLAN: $VenvPy -m pip install --upgrade $From"
+            Say ('PLAN: ' + $VenvPy + ' -m pip install --upgrade "' + $InstallSpec + '"')
             return
         }
         Invoke-Native "creating the venv at $Venv" $PyExe ($PyPrefix + @('-m', 'venv', $Venv))
-        Invoke-Native "'pip install --upgrade $From'" $VenvPy @('-m', 'pip', 'install', '--upgrade', $From)
+        Invoke-Native "'pip install --upgrade $InstallSpec'" $VenvPy @('-m', 'pip', 'install', '--upgrade', $InstallSpec)
         $script:Cli = $Venv + '\Scripts\tutor-any-lecture.exe'
     }
 }
@@ -223,8 +310,11 @@ function Test-SameAsSource([string]$Target) {
     return ($physical -ieq $SkillSrc.TrimEnd('\', '/'))
 }
 
-# Step 5: copy the skill folder to each agent.
+# Step 5: copy the skill folder to each agent (nothing with -CliOnly).
 function Copy-Skills([string]$Mode) {
+    if ($CliOnly) {
+        return
+    }
     if ($AgentNames.Count -eq 0) {
         if ($Mode -eq 'plan') {
             Say 'PLAN: skip copying skills (no agent folder found; use -Agents claude,codex,agents)'
@@ -251,12 +341,14 @@ function Copy-Skills([string]$Mode) {
         try {
             [void][System.IO.Directory]::CreateDirectory($skillsDir)
             # Only a path named exactly <agent home>\skills\tutor-any-lecture is
-            # removed. A symlink or junction is removed as a link; what it points
-            # to is left alone.
+            # removed. A symlink or junction is removed as a link (a file symlink
+            # as a file); what it points to is left alone.
             $old = Get-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
             if ($old) {
-                if ($old.LinkType) {
+                if ($old.LinkType -and $old.PSIsContainer) {
                     [System.IO.Directory]::Delete($target)
+                } elseif ($old.LinkType) {
+                    [System.IO.File]::Delete($target)
                 } elseif ($old.PSIsContainer) {
                     Remove-Item -LiteralPath $target -Recurse -Force
                 } else {
@@ -272,6 +364,7 @@ function Copy-Skills([string]$Mode) {
 }
 
 function Show-Plan {
+    Show-Options
     Install-Cli 'plan'
     Write-CliPath 'plan'
     Copy-Skills 'plan'
