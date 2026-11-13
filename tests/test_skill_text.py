@@ -274,3 +274,6 @@ def test_guardrail_leaves_audio_to_the_learner():
     t = read(SKILL)
     assert "never use the learner's passwords or cookies" in t
     assert "downloads are disabled" not in t
+    references = sorted((SKILL.parent / "references").rglob("*"))
+    for path in (p for p in references if p.is_file()):
+        assert "downloads are disabled" not in read(path), path

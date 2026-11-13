@@ -23,7 +23,7 @@ Never click submit, post, edit, share or booking controls. At a login page, stop
 
 ## Downloads offered?
 
-Which downloads the platform itself offers (and to whom), and how the profile's `downloads` setting applies: ask (default) asks before every download; allow permits only downloads the platform itself offers. Never capture streams of recordings whose downloads are disabled, never read cookies, never circumvent DRM.
+Which downloads the platform itself offers (and to whom), and how the profile's `downloads` setting applies: ask (default) asks before every download; allow permits only downloads the platform itself offers. Never circumvent DRM, and never use the learner's passwords or cookies; downloading audio is the learner's choice and responsibility, through the public_video_audio switch.
 
 ## Known pitfalls
 
