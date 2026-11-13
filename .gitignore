@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 # your own settings live in the tutor-any-lecture config dir, never in the repo
 config.yaml
+# the local environment and private planning files, never in the repo
+.venv/
+.superpowers/
+docs/design/

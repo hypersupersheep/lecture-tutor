@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
 
+# No job installs the asr extra: doctor must report ready without speech recognition.
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -27,13 +29,12 @@ jobs:
       - name: Doctor (POSIX)
         if: runner.os != 'Windows'
         shell: bash
-        run: tutor-any-lecture doctor --json || test $? -eq 3
+        run: tutor-any-lecture doctor --json
       - name: Doctor (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           tutor-any-lecture doctor --json
-          if ($LASTEXITCODE -eq 3) { exit 0 }
           exit $LASTEXITCODE
 
   install:
@@ -52,7 +53,9 @@ jobs:
       - name: Dry run (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: pwsh install.ps1 -DryRun
+        run: |
+          pwsh -NoProfile -File install.ps1 -DryRun
+          exit $LASTEXITCODE
       - name: Real install (POSIX)
         if: runner.os != 'Windows'
         shell: bash
@@ -60,7 +63,9 @@ jobs:
       - name: Real install (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: pwsh -File install.ps1 -Yes -From . -Agents claude
+        run: |
+          pwsh -NoProfile -File install.ps1 -Yes -From . -Agents claude
+          exit $LASTEXITCODE
       - name: Selftest via recorded CLI path (POSIX)
         if: runner.os != 'Windows'
         shell: bash
@@ -71,6 +76,52 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $cli = (Get-Content -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -TotalCount 1).Trim()
+          $cli = (Get-Content -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -TotalCount 1 -Encoding UTF8).Trim()
+          & $cli selftest
+          exit $LASTEXITCODE
+
+      # The same installer under Windows PowerShell 5.1, which stock Windows ships.
+      - name: Dry run (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -DryRun
+          exit $LASTEXITCODE
+      - name: Real install (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Yes -From . -Agents claude
+          exit $LASTEXITCODE
+      - name: Selftest via recorded CLI path (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $cli = (Get-Content -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -TotalCount 1 -Encoding UTF8).Trim()
+          & $cli selftest
+          exit $LASTEXITCODE
+
+      # One more real install from a copy of the checkout in a folder whose name
+      # has a space and CJK characters.
+      - name: Install from a folder with a space and CJK characters (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          dest="$RUNNER_TEMP/课程 资料/tutor-any-lecture"
+          mkdir -p "$dest"
+          cp -R . "$dest"
+          bash "$dest/install.sh" --yes --agents claude
+          cli="$(head -n 1 "${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path")"
+          "$cli" selftest
+      - name: Install from a folder with a space and CJK characters (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP '课程 资料\tutor-any-lecture'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Get-ChildItem -Force -LiteralPath . | Copy-Item -Destination $dest -Recurse -Force
+          pwsh -NoProfile -File (Join-Path $dest 'install.ps1') -Yes -Agents claude
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cli = (Get-Content -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -TotalCount 1 -Encoding UTF8).Trim()
           & $cli selftest
           exit $LASTEXITCODE

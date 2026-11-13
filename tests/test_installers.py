@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -386,3 +387,52 @@ def test_ps1_git_fallback_installs_the_version_tag(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert f"tutor-any-lecture[asr] @ {GIT_SOURCE}@v{__version__}" in proc.stdout
+
+
+# ---- packaging ------------------------------------------------------------------
+
+
+def test_sdist_includes_only_public_files():
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    section = re.search(r"^\[tool\.hatch\.build\.targets\.sdist\]\n(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    assert section, "no sdist target"
+    include = re.search(r"^include\s*=\s*\[(.*?)\]", section.group(1), re.M | re.S)
+    assert include, "no include list"
+    entries = re.findall(r'"([^"]*)"', include.group(1))
+    assert entries == [
+        "src/",
+        "README.md",
+        "README.zh-CN.md",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "pyproject.toml",
+    ]
+
+
+def ci_steps():
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    return [step for job in workflow["jobs"].values() for step in job["steps"]]
+
+
+def test_ci_runs_the_installer_under_windows_powershell_5_1():
+    runs = [s["run"] for s in ci_steps() if s.get("shell") == "powershell"]
+    base = "powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1"
+    assert any(base + " -DryRun" in r for r in runs)
+    assert any(base + " -Yes -From . -Agents claude" in r for r in runs)
+    assert any("cli-path" in r and "selftest" in r for r in runs)
+
+
+def test_ci_installs_from_a_folder_with_space_and_cjk_on_every_os():
+    runs = [s.get("run", "") for s in ci_steps()]
+    odd = [r for r in runs if "课程 资料" in r and "selftest" in r]
+    assert any("install.sh" in r for r in odd) and any("install.ps1" in r for r in odd)
+
+
+def test_ci_never_installs_asr_and_doctor_must_be_ready():
+    runs = [s.get("run", "") for s in ci_steps()]
+    assert not any("asr" in r.lower() for r in runs)
+    doctor = [r for r in runs if "doctor" in r]
+    assert doctor
+    assert not any("-eq 3" in r for r in doctor)

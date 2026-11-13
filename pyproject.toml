@@ -32,5 +32,16 @@ path = "src/tutor_any_lecture/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tutor_any_lecture"]
 
+# An allow-list: nothing else in the checkout (docs, tests, skills, planning files) goes into an sdist.
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/",
+  "README.md",
+  "README.zh-CN.md",
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+  "pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 markers = ["slow: needs a real cached ASR model; deselect with -m 'not slow'"]
