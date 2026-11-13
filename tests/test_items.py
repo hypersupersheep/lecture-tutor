@@ -379,3 +379,22 @@ def test_load_items_structural_faults(tmp_path, fault):
     write_json(path, obj)
     with pytest.raises(ValueError):
         load_items(path)
+
+
+# ---- validate before the note exists (Task 23) -------------------------------
+
+
+def test_cli_items_validate_without_note(tmp_path, capsys):
+    u = unit_with_items(tmp_path, items=ITEMS_COPYING_NOTE)
+    UnitPaths(u).explanation.unlink()
+    assert main(["items", "assign", "--unit", str(u)]) == 0
+    capsys.readouterr()
+    assert main(["items", "validate", "--unit", str(u)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    by_name = {r["name"]: r for r in out["results"]}
+    skipped = ["skipped: explanation.md not written yet"]
+    for name in ("prompt_overlap", "tracked_leak", "pretest_complete"):
+        assert by_name[name] == {"name": name, "status": "PASS", "details": skipped}
+    for name in ("variants", "apply_share", "citation", "tracked_vs_practice"):
+        assert by_name[name]["details"] != skipped
+    assert out["status"] == "PASS"

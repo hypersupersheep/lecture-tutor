@@ -19,7 +19,7 @@ from .checks import CheckResult
 from .citations import format_seconds, parse, resolve
 from .conceptmap import load_map, validate_map
 from .items import load_items, validate_items
-from .notecheck import check_note, cited_quotes, marker_sections
+from .notecheck import check_note, cited_quotes, marker_sections, strip_marker_sections
 from .plan import load_plan
 from .slides import load_pages, max_label
 from .source import SourceInfo
@@ -39,8 +39,9 @@ SEVERITY = {"PASS": 0, "WARN": 1, "FAIL": 2}
 # "\$" is a literal currency sign: hidden behind this placeholder while math is removed.
 _DOLLAR_PLACEHOLDER = "\ue000"
 
-# "slide N" or "slides N–M" (en dash or hyphen-minus), any number on a line.
-NOT_COVERED_SLIDE_RE = re.compile(r"slides?\s+(\d+)(?:\s*[–-]\s*(\d+))?", re.IGNORECASE)
+# "slides N–M" (en dash or hyphen-minus) is a range when N <= M; "slide N" takes one number.
+# Any number of them on a line.
+NOT_COVERED_SLIDE_RE = re.compile(r"slides\s+(\d+)\s*[–-]\s*(\d+)|slides?\s+(\d+)", re.IGNORECASE)
 
 # terms
 NOTE_CALLOUT_RE = re.compile(r"^\s*>\s*\[!NOTE\]", re.IGNORECASE)
@@ -70,14 +71,31 @@ NUMBER_RE = re.compile(
 # ---------------------------------------------------------------- text views
 
 
-def _code_and_math_free(md: str) -> tuple[str, str]:
-    """(code_free, note_text): the note without code, then also without math.
+def _without_note_callouts(text: str) -> str:
+    """``text`` without its NOTE callouts (tutor additions), each from its tag line to the last '>' line."""
+    lines = text.split("\n")
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        if NOTE_CALLOUT_RE.match(lines[i]):
+            while i < len(lines) and lines[i].lstrip().startswith(">"):
+                i += 1
+            continue
+        kept.append(lines[i])
+        i += 1
+    return "\n".join(kept)
 
-    Code goes as in check_note: fenced blocks whole, inline spans deleted. Math goes as
-    units() excludes it: $$…$$, \\[…\\], \\(…\\), then inline $…$ by the pandoc rule.
+
+def _code_and_math_free(md: str) -> tuple[str, str]:
+    """(code_free, note_text): the note without code; then the lecture prose without math.
+
+    Code goes as in check_note: fenced blocks whole, inline spans deleted. note_text, which
+    the terms and numbers checks read, also leaves out the four marker sections and the
+    NOTE callouts. Math goes as units() excludes it: $$…$$, \\[…\\], \\(…\\), then inline
+    $…$ by the pandoc rule.
     """
     code_free = strip_code(md)
-    text = code_free.replace("\\$", _DOLLAR_PLACEHOLDER)
+    text = _without_note_callouts(strip_marker_sections(code_free)).replace("\\$", _DOLLAR_PLACEHOLDER)
     for pattern in (DISPLAY_MATH_RE, BRACKET_MATH_RE, PAREN_MATH_RE, INLINE_MATH_RE):
         text = pattern.sub(" ", text)
     return code_free, text.replace(_DOLLAR_PLACEHOLDER, "\\$")
@@ -259,7 +277,12 @@ def _check_coverage(cits, pages, md) -> dict:
     # Ranges are kept as (low, high) pairs, so a huge range costs nothing.
     spans = [_span(c.start, c.end) for c in cits if c.kind == "slide"]
     not_covered = "\n".join(marker_sections(md)["not-covered"])
-    spans += [_span(a, b) for a, b in NOT_COVERED_SLIDE_RE.findall(not_covered)]
+    for first, last, single in NOT_COVERED_SLIDE_RE.findall(not_covered):
+        if single:
+            spans.append(_span(single, None))
+        else:
+            # "slides 5–3" is not a range: it lists slide 5.
+            spans.append(_span(first, last) if int(first) <= int(last) else _span(first, None))
     details = [
         f"slide {n} is neither cited nor listed in the not-covered section"
         for n in sorted({_slide_number(p) for p in pages})
@@ -273,18 +296,7 @@ def _normalise(text: str) -> str:
 
 
 def _terms_text(note_text: str) -> str:
-    lines = note_text.split("\n")
-    kept: list[str] = []
-    i = 0
-    while i < len(lines):
-        if NOTE_CALLOUT_RE.match(lines[i]):
-            while i < len(lines) and lines[i].lstrip().startswith(">"):
-                i += 1
-            continue
-        kept.append(lines[i])
-        i += 1
-    text = "\n".join(kept)
-    text = HTML_COMMENT_RE.sub(" ", text)
+    text = HTML_COMMENT_RE.sub(" ", note_text)
     text = HTML_TAG_RE.sub(" ", text)
     text = CALLOUT_TAG_RE.sub(" ", text)
     text = LINK_TARGET_RE.sub("]", text)

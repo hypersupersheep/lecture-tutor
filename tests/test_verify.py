@@ -345,3 +345,41 @@ def test_bundled_sample_passes_quote_source(tmp_path):
     r = _read_json(UnitPaths(unit).verify)
     assert quote_source_details(r) == []
     assert entry(r, "citations")["status"] in ("PASS", "WARN")
+
+
+# ---------------------------------------------------------------- prose-only numbers and terms (Task 23)
+
+
+def test_numbers_ignore_marker_sections_and_notes(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    before = entry(run_verify(u), "numbers")
+    append_to_note(
+        u,
+        "\n\n<!-- tal:errata -->\n> [!CAUTION]\n> The slide says 5% a month. (slide 1)\n<!-- /tal:errata -->\n"
+        "\n> [!NOTE]\n> Over 3 years the gap grows to £40 or more.\n",
+    )
+    assert entry(run_verify(u), "numbers") == before
+    append_to_note(u, "\nOver 3 years the gap grows (slide 1).\n")
+    assert "in the note, not in the sources: 3years" in entry(run_verify(u), "numbers")["details"]
+
+
+def test_terms_ignore_marker_sections(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    before = entry(run_verify(u), "terms")
+    append_to_note(
+        u,
+        "\n\n<!-- tal:check -->\n1. Would a Monte Carlo run of GBM paths change the answer?\n\n"
+        "<details><summary>Answer</summary>\n\nNo.\n\n</details>\n<!-- /tal:check -->\n",
+    )
+    assert entry(run_verify(u), "terms") == before
+    append_to_note(u, "\nIn the end a Monte Carlo run would agree (slide 1).\n")
+    assert "not in the transcript or slides: Monte Carlo" in entry(run_verify(u), "terms")["details"]
+
+
+def test_not_covered_singular_takes_one_number(tmp_path):
+    u = five_slide_unit(tmp_path / "a", "- slide 3 - 5 worked examples skipped\n")
+    assert entry(run_verify(u), "coverage") == {"name": "coverage", "status": "FAIL", "details": [
+        f"slide {n} is neither cited nor listed in the not-covered section" for n in (4, 5)]}
+    reversed_range = five_slide_unit(tmp_path / "b", "- slides 5–3\n")
+    assert entry(run_verify(reversed_range), "coverage")["details"] == [
+        f"slide {n} is neither cited nor listed in the not-covered section" for n in (3, 4)]

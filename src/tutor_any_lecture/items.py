@@ -28,6 +28,8 @@ APPLY_SHARE_MIN = 0.5
 ASSIGNED_PHASES = ("pre", "post", "d7")
 OPTIONAL_PHASES = {"d1": "D", "d21": "E"}
 SENTENCE_SPLIT_RE = re.compile(r"[.!?。！？\n]")
+NO_NOTE = "skipped: explanation.md not written yet"
+NOTE_CHECKS = ("prompt_overlap", "tracked_leak", "pretest_complete")
 
 
 @dataclass
@@ -165,10 +167,18 @@ def _result(name: str, bad_status: str, offences: list[str]) -> CheckResult:
     return CheckResult(name, bad_status if offences else "PASS", offences)
 
 
-def validate_items(items: dict, plan: Plan, explanation_md: str, lang: str, assignment=None) -> list[CheckResult]:
-    """The seven item-bank checks, in a fixed order. ``explanation_md`` is the raw note."""
+def validate_items(
+    items: dict, plan: Plan, explanation_md: str | None, lang: str, assignment=None
+) -> list[CheckResult]:
+    """The seven item-bank checks, in a fixed order. ``explanation_md`` is the raw note.
+
+    With no note yet (``None``), the three checks that read it pass as skipped.
+    """
     if assignment is not None:
         _check_assignment(assignment, ("pre",))
+    if explanation_md is None:
+        results = validate_items(items, plan, "", lang, assignment)
+        return [CheckResult(r.name, "PASS", [NO_NOTE]) if r.name in NOTE_CHECKS else r for r in results]
 
     tracked = [(cid, letter, it) for cid, variants in items["tracked"].items() for letter, it in variants.items()]
     practice = list(items["practice"])
@@ -303,11 +313,11 @@ def _read_assignment(path: Path):
 
 
 def validate_unit(unit: Path) -> list[CheckResult]:
-    """``items validate``: check the unit's item bank against its plan and note."""
+    """``items validate``: check the unit's item bank against its plan and note (if written yet)."""
     paths = UnitPaths(unit)
     plan = load_plan(paths.plan)
     items = load_items(paths.items)
-    md = paths.explanation.read_text(encoding="utf-8")
+    md = paths.explanation.read_text(encoding="utf-8") if paths.explanation.exists() else None
     assignment = _read_assignment(paths.assignment) if paths.assignment.exists() else None
     return validate_items(items, plan, md, plan.note_language, assignment)
 

@@ -184,3 +184,33 @@ def test_duplicate_heading_slugs_get_suffixes():
     assert details_of(check_note(md, "en", "deep", 90, "markdown"), "toc_mismatch") == [
         "TOC link #intro-2 matches no H2"
     ]
+
+
+# ---- headings and length (Task 23) -------------------------------------------
+
+
+@pytest.mark.parametrize("heading, status", [
+    ("## 1. Present value", "FAIL"),
+    ("## 2) Discounting", "FAIL"),
+    ("## 1.2 Annuities", "FAIL"),
+    ("## 1.2.3 Perpetuities", "FAIL"),
+    ("## 2008 financial crisis", "PASS"),
+    ("## 3 worked examples", "PASS"),
+])
+def test_numbered_heading_means_an_outline_prefix(heading, status):
+    md = f"{heading}\n\nSome prose.\n"
+    assert status_of(check_note(md, "en", "deep", 90, "markdown"), "numbered_heading") == status
+
+
+def test_length_ceiling_has_a_floor():
+    def note(words):
+        return "## Part\n\n" + " ".join(["word"] * (words - 1)) + "\n"
+
+    assert units(note(300), "en") == 300
+    assert status_of(check_note(note(300), "en", "deep", 3, "markdown"), "length") == "PASS"
+    assert status_of(check_note(note(500), "en", "deep", 3, "markdown"), "length") == "WARN"
+    # the lower bound is unchanged: 26 words a minute for deep
+    assert status_of(check_note(note(70), "en", "deep", 3, "markdown"), "length") == "WARN"
+    cjk = "## 复利\n\n" + "利" * 700 + "\n"
+    assert status_of(check_note(cjk, "zh", "deep", 3, "markdown"), "length") == "PASS"
+    assert status_of(check_note(cjk + "利" * 200 + "\n", "zh", "deep", 3, "markdown"), "length") == "WARN"

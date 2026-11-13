@@ -18,6 +18,8 @@ THRESHOLDS = {
     "length_per_min": {"deep": {"cjk": (44, 89), "words": (26, 53)},
                        "exam": {"cjk": (30, 70), "words": (18, 42)},
                        "quick": {"cjk": (10, 25), "words": (6, 15)}},
+    # The upper length bound, in total units, is never below this: a short lecture may have real paragraphs.
+    "length_ceiling_min": {"cjk": 800, "words": 400},
     "timestamps_per_min": {"deep": 0.67, "exam": 0.5, "quick": 0.2},
     "quotes_per_min": {"deep": 0.22, "exam": 0.15, "quick": 0.07},
     "h2_per_90min": 16,
@@ -39,7 +41,8 @@ CALLOUT_TYPES = {"NOTE", "IMPORTANT", "WARNING", "CAUTION"}
 
 MARKER_RE = re.compile(r"^\s*<!--\s*(/?)tal:([a-z-]+)\s*-->\s*$")
 H4_RE = re.compile(r"^#{4,6} ")
-NUMBERED_HEADING_RE = re.compile(r"^#+ *\d+(\.\d+)* ")
+# An outline prefix before a space: "1.", "2)", "1.2", "1.2.3". "2008 crisis" is not one.
+NUMBERED_HEADING_RE = re.compile(r"^#+ *(?:\d+[.)]|\d+(?:\.\d+)+[.)]?) ")
 HEADING_RE = re.compile(r"^#{1,6} ")
 CALLOUT_RE = re.compile(r"^\s*>\s*\[!([A-Za-z]+)\]")
 CALLOUT_START_RE = re.compile(r"^\s*>\s*\[!")
@@ -245,6 +248,11 @@ def _short(s: str, n: int = 60) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def _num(x: float) -> str:
+    """At most one decimal, without a trailing zero: 53, 133.3."""
+    return f"{x:.1f}".rstrip("0").rstrip(".")
+
+
 def _result(name: str, status: str, offences: list[str]) -> CheckResult:
     return CheckResult(name, status if offences else "PASS", offences)
 
@@ -397,12 +405,15 @@ def check_note(
 
     if known:
         lo, hi = THRESHOLDS["length_per_min"][goal][unit_key]
+        hi = max(hi, THRESHOLDS["length_ceiling_min"][unit_key] / duration_min)
         rate = p_units / duration_min
         results.append(
             _result(
                 "length",
                 "WARN",
-                [] if lo <= rate <= hi else [f"{rate:.1f} {unit_name} per minute, expected {lo}–{hi} for {goal}"],
+                []
+                if lo <= rate <= hi
+                else [f"{rate:.1f} {unit_name} per minute, expected {lo}–{_num(hi)} for {goal}"],
             )
         )
         times = sum(1 for c in parse(p) if c.kind == "time")
