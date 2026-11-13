@@ -171,3 +171,20 @@ def test_cli_panopto_non_object_is_error_json(tmp_path, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1 and json.loads(lines[0])["status"] == "error"
     assert not UnitPaths(unit).transcript.exists()
+
+
+def test_viewer_url_is_stored_without_tokens(tmp_path):
+    url = "https://x.example/Panopto/Pages/Embed.aspx?id=abc&token=SECRET#t=5"
+    unit = tmp_path / "u"
+    import_panopto(write_extract(tmp_path, "e.json", {**plain_extract(), "url": url}), unit, False)
+    src = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    assert src["url"] == "https://x.example/Panopto/Pages/Embed.aspx?id=abc"
+    assert "SECRET" not in UnitPaths(unit).source.read_text(encoding="utf-8")
+
+
+def test_viewer_url_without_id_drops_its_query(tmp_path):
+    url = "https://x.example/Panopto/Pages/Viewer.aspx?tid=1&auth=SECRET#start=3"
+    unit = tmp_path / "u"
+    import_panopto(write_extract(tmp_path, "e.json", {**plain_extract(), "url": url}), unit, False)
+    src = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    assert src["url"] == "https://x.example/Panopto/Pages/Viewer.aspx"

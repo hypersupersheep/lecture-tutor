@@ -69,6 +69,44 @@ class SourceInfo:
             raise ValueError(f"source.json: {e}") from None
 
 
+def _is_slide_deck(name) -> bool:
+    """An ``inputs_sha256`` key that names the slide deck: the PDF that ``slides --pdf`` read.
+
+    No acquisition reads a PDF, so the suffix tells the deck's entry from the transcript's.
+    """
+    return isinstance(name, str) and name.lower().endswith(".pdf")
+
+
+def slide_digests(path: Path) -> dict[str, str]:
+    """The slide-deck entries of ``inputs_sha256`` in the source.json at ``path``.
+
+    An acquisition that replaces source.json carries them over. A missing or unreadable
+    file gives ``{}``: it is being replaced anyway.
+    """
+    try:
+        data = read_json(path, "source.json")
+    except (OSError, ValueError):
+        return {}
+    inputs = data.get("inputs_sha256") if isinstance(data, dict) else None
+    if not isinstance(inputs, dict):
+        return {}
+    return {k: v for k, v in inputs.items() if _is_slide_deck(k) and isinstance(v, str)}
+
+
+def add_slide_digest(path: Path, name: str, digest: str) -> None:
+    """Record the slide deck ``name`` in an existing source.json; nothing else changes.
+
+    An earlier deck's entry is replaced. A malformed file raises ``ValueError("source.json: …")``
+    and is left as it is.
+    """
+    SourceInfo.read(path)  # validates; raises before anything is written
+    data = read_json(path, "source.json")
+    inputs = {k: v for k, v in data["inputs_sha256"].items() if not _is_slide_deck(k)}
+    inputs[name] = digest
+    data["inputs_sha256"] = inputs
+    Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as f:

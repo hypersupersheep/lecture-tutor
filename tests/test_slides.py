@@ -69,14 +69,37 @@ def test_source_json_written_when_absent(tmp_path):
     assert "pdfplumber" in src["tool_versions"]
 
 
-def test_source_json_untouched_when_present(tmp_path):
+def test_malformed_source_json_stops_slides_before_writing(tmp_path):
+    # Task 25: slides --pdf now adds its digest to an existing source.json, so a file it
+    # cannot read is an error (before Task 25 it was left untouched and not read).
     paths = UnitPaths(tmp_path / "unit")
     paths.ensure()
     sentinel = b'{"kind": "transcript"}\n'
     paths.source.write_bytes(sentinel)
-    extract_pdf(make_pdf(tmp_path, ["a", "b"]), tmp_path / "unit")
+    with pytest.raises(ValueError, match="source.json"):
+        extract_pdf(make_pdf(tmp_path, ["a", "b"]), tmp_path / "unit")
     assert paths.source.read_bytes() == sentinel
-    assert len(load_pages(tmp_path / "unit")) == 2
+    assert not paths.pages.exists()
+
+
+def test_pdf_digest_is_added_to_an_existing_source(tmp_path):
+    unit = tmp_path / "unit"
+    vtt = tmp_path / "lecture.vtt"
+    vtt.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nCompound interest\n", encoding="utf-8", newline="\n")
+    import_transcript(vtt, unit, None, False)
+    before = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    pdf = make_pdf(tmp_path, ["Compound interest\n1/1"])
+    extract_pdf(pdf, unit)
+    after = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    assert after["inputs_sha256"] == {"lecture.vtt": sha256_file(vtt), "slides.pdf": sha256_file(pdf)}
+    assert {k: v for k, v in after.items() if k != "inputs_sha256"} == {
+        k: v for k, v in before.items() if k != "inputs_sha256"}
+    # Another deck replaces the slide-deck entry; the transcript's entry stays.
+    other = tmp_path / "deck2.pdf"
+    other.write_bytes(make_pdf(tmp_path / "b", ["Discounting\n1/1"]).read_bytes())
+    extract_pdf(other, unit)
+    after = json.loads(UnitPaths(unit).source.read_text(encoding="utf-8"))
+    assert after["inputs_sha256"] == {"lecture.vtt": sha256_file(vtt), "deck2.pdf": sha256_file(other)}
 
 
 def test_images_written(tmp_path):

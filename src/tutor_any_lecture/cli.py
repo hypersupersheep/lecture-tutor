@@ -155,7 +155,9 @@ def _run_acquire(call) -> int:
 def _cmd_acquire_import(args) -> int:
     from .acquire.importer import import_transcript
 
-    return _run_acquire(lambda: import_transcript(Path(args.file), Path(args.unit), args.duration, args.force))
+    return _run_acquire(
+        lambda: import_transcript(Path(args.file), Path(args.unit), args.duration, args.force, media=args.media)
+    )
 
 
 def _cmd_acquire_panopto(args) -> int:
@@ -466,7 +468,11 @@ def build_parser() -> argparse.ArgumentParser:
     imp = acquire_sub.add_parser("import", help="import a transcript file (.srt, .vtt, .json, .txt)")
     imp.add_argument("--file", type=_path, required=True, help="the transcript file")
     imp.add_argument("--unit", type=_path, required=True, help="the unit folder")
-    imp.add_argument("--duration", type=_positive_number, default=None, help="the lecture length in seconds, if known")
+    length = imp.add_mutually_exclusive_group()
+    length.add_argument("--duration", type=_positive_number, default=None,
+                        help="the lecture length in seconds, if known")
+    length.add_argument("--media", type=_path, default=None,
+                        help="the lecture's video or audio file; its length is read from it")
     imp.add_argument("--force", action="store_true", help="replace an existing transcript")
     imp.set_defaults(func=_cmd_acquire_import)
     pan = acquire_sub.add_parser("panopto", help="import the JSON that panopto_extract.js returns")

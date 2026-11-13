@@ -18,7 +18,7 @@ from tutor_any_lecture import asr, ffmpeg
 
 from ..profile import PUBLIC_VIDEO_AUDIO_NOTICE, ConsentRequired, Profile, has_audio_consent
 from ..slides import load_pages, slide_terms
-from ..source import SourceInfo
+from ..source import SourceInfo, slide_digests
 from ..transcript import (
     AcquireError,
     EmptyTranscript,
@@ -31,7 +31,7 @@ from ..transcript import (
     primary_subtag,
 )
 from ..unit import UnitPaths
-from .local import temp_dir
+from .local import refuse_overwrite, temp_dir
 
 # Every options dict starts from these (through _opts), so yt-dlp writes nothing on stdout
 # (the CLI prints exactly one JSON object there) and never expands a playlist.
@@ -254,8 +254,7 @@ def acquire_url(
 ) -> Health:
     paths = UnitPaths(unit)
     # The guard comes first, before yt-dlp is touched; it keys on transcript.json only.
-    if paths.transcript.exists() and not force:
-        raise FileExistsError(f"{paths.transcript} already exists; rerun with --force to replace it")
+    refuse_overwrite(unit, force)
 
     try:
         # "in_playlist": a playlist page comes back with its entries unresolved, so the
@@ -333,5 +332,5 @@ def _write(
         acquisition=acquisition,
         health=dataclasses.asdict(h),
         tool_versions=versions,
-        inputs_sha256={},
+        inputs_sha256=slide_digests(paths.source),
     ).write(paths.source)

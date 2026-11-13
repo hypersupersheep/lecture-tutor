@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .plan import read_json
-from .source import SourceInfo, sha256_file
+from .source import SourceInfo, add_slide_digest, sha256_file
 from .transcript import AcquireError
 from .unit import UnitPaths
 
@@ -45,10 +45,17 @@ def extract_pdf(pdf: Path, unit: Path, images: bool = False) -> list[Page]:
 
     The PDF is opened and its text read before anything is created in the unit, so an
     unreadable file (not a PDF, damaged, encrypted) raises ``AcquireError`` and writes nothing.
+
+    The PDF's sha256 goes into source.json's ``inputs_sha256``: a new slides-only
+    source.json when the unit has none, else an entry added to the existing one (a
+    malformed one raises ``ValueError`` before anything is written).
     """
     pdf = Path(pdf)
     if not pdf.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf}")
+    source = UnitPaths(unit).source
+    if source.exists():
+        SourceInfo.read(source)  # a malformed source.json stops the run here, unchanged
 
     import importlib.metadata
 
@@ -83,7 +90,10 @@ def extract_pdf(pdf: Path, unit: Path, images: bool = False) -> list[Page]:
     payload = [dataclasses.asdict(p) for p in pages]
     paths.pages.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
-    if not paths.source.exists():
+    digest = sha256_file(pdf)
+    if paths.source.exists():
+        add_slide_digest(paths.source, pdf.name, digest)
+    else:
         SourceInfo(
             kind="slides-only",
             title=pdf.stem,
@@ -94,7 +104,7 @@ def extract_pdf(pdf: Path, unit: Path, images: bool = False) -> list[Page]:
             acquisition="slides",
             health={},
             tool_versions={"pdfplumber": importlib.metadata.version("pdfplumber")},
-            inputs_sha256={pdf.name: sha256_file(pdf)},
+            inputs_sha256={pdf.name: digest},
         ).write(paths.source)
     return pages
 

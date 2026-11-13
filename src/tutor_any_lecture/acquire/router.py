@@ -27,7 +27,17 @@ _QUESTION_TEXT = {
     "transcript": "More than one transcript file. Which one belongs to this lecture?",
     "media": "More than one video or audio file. Which one is the lecture recording?",
     "pdf": "More than one PDF. Which one holds the lecture slides?",
+    "unsafe-name": "These file names contain characters that are unsafe on a command line; "
+    "rename them, then run the route again.",
 }
+
+# Characters a shell would act on. A file whose name holds one is never put into a step:
+# an agent that pastes the argv into a shell line would run part of the name.
+_UNSAFE_CHARACTERS = frozenset('$`"\\;|&<>')
+
+
+def _is_unsafe_name(name: str) -> bool:
+    return any(c in _UNSAFE_CHARACTERS or ord(c) < 32 or ord(c) == 127 for c in name)
 
 
 def _is_panopto_extract(path: Path) -> bool:
@@ -73,6 +83,7 @@ def route(folder: Path, unit: Path | None = None) -> dict:
             return str(p)
 
     files: dict[str, list[str]] = {c: [] for c in _CLASSES}
+    unsafe: list[str] = []  # listed under "other", named in a question, never planned
     panopto: set[str] = set()  # transcript paths that are Panopto extracts
     pdfs: list[str] = []
     pptx: list[str] = []
@@ -83,6 +94,11 @@ def route(folder: Path, unit: Path | None = None) -> dict:
         if not path.is_file():
             continue
         f = str(root / name)
+        if _is_unsafe_name(name):
+            # Checked before the file is opened or classified.
+            files["other"].append(f)
+            unsafe.append(f)
+            continue
         suffix = path.suffix.lower()
         if suffix == ".json":
             if _is_panopto_extract(path):
@@ -115,9 +131,14 @@ def route(folder: Path, unit: Path | None = None) -> dict:
     else:
         slide_source = "none"
 
+    # One recording beside a transcript to import gives the lecture's duration.
+    media_for_import = media[0] if len(media) == 1 else None
+
     def transcript_argv(f: str) -> list[str]:
         if f in panopto:
             return [T, "acquire", "panopto", "--extract", f, "--unit", u]
+        if media_for_import is not None:
+            return [T, "acquire", "import", "--file", f, "--media", media_for_import, "--unit", u]
         return [T, "acquire", "import", "--file", f, "--unit", u]
 
     def slides_argv(f: str) -> list[str]:
@@ -134,14 +155,15 @@ def route(folder: Path, unit: Path | None = None) -> dict:
         f = transcripts[0]
         if f in panopto:
             writes = [w(paths.transcript), w(paths.chapters), w(paths.source)]
+            reads = [f]
         else:
             writes = [w(paths.transcript), w(paths.source)]
-        steps.append(step(transcript_argv(f), [f], writes))
+            reads = [f] if media_for_import is None else [f, media_for_import]
+        steps.append(step(transcript_argv(f), reads, writes))
     if len(pdfs) == 1:
         f = pdfs[0]
-        # slides --pdf writes source.json only into a unit that has none yet.
-        writes = [w(paths.pages)] if steps else [w(paths.pages), w(paths.source)]
-        steps.append(step(slides_argv(f), [f], writes))
+        # slides --pdf records the PDF's digest in source.json, creating it when missing.
+        steps.append(step(slides_argv(f), [f], [w(paths.pages), w(paths.source)]))
     if not transcripts and len(media) == 1:
         f = media[0]
         # The first transcription may download the ASR model.
@@ -154,11 +176,13 @@ def route(folder: Path, unit: Path | None = None) -> dict:
         return {
             "about": about,
             "candidates": list(candidates),
-            "argv": [make_argv(c) for c in candidates],
+            "argv": [make_argv(c) for c in candidates] if make_argv is not None else [],
             "text": _QUESTION_TEXT[about],
         }
 
     questions: list[dict] = []
+    if unsafe:
+        questions.append(question("unsafe-name", unsafe, None))
     if len(transcripts) > 1:
         questions.append(question("transcript", transcripts, transcript_argv))
     if not transcripts and len(media) > 1:

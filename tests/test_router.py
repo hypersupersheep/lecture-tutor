@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -158,9 +159,11 @@ def test_ambiguous_class_gets_question_not_step(tmp_path):
     assert [q["about"] for q in plan["questions"]] == ["transcript", "pdf"]
     assert plan["slide_source"] == "pdf"
     assert plan["steps"] == []
+    # Task 25: the one recording in the folder gives each candidate import its duration.
+    v = str(root / "v.mp4")
     assert plan["questions"][0]["argv"] == [
-        ["tutor-any-lecture", "acquire", "import", "--file", str(root / "x.srt"), "--unit", "<unit>"],
-        ["tutor-any-lecture", "acquire", "import", "--file", str(root / "y.vtt"), "--unit", "<unit>"],
+        ["tutor-any-lecture", "acquire", "import", "--file", str(root / "x.srt"), "--media", v, "--unit", "<unit>"],
+        ["tutor-any-lecture", "acquire", "import", "--file", str(root / "y.vtt"), "--media", v, "--unit", "<unit>"],
     ]
     assert plan["questions"][1]["argv"] == [
         ["tutor-any-lecture", "slides", "--pdf", str(root / "s1.pdf"), "--unit", "<unit>"],
@@ -186,14 +189,21 @@ def test_unit_in_argv_and_writes(tmp_path):
     steps = route(folder)["steps"]
     assert all(s["argv"][s["argv"].index("--unit") + 1] == "<unit>" for s in steps)
     assert steps[0]["writes"] == ["<unit>/sources/transcript.json", "<unit>/sources/source.json"]
-    assert steps[1]["writes"] == ["<unit>/sources/slides/pages.json"]
+    assert steps[1]["writes"] == ["<unit>/sources/slides/pages.json", "<unit>/sources/source.json"]
 
     steps = route(folder, unit)["steps"]
     u = unit.resolve()
     assert all(s["argv"][s["argv"].index("--unit") + 1] == str(u) for s in steps)
     assert steps[0]["writes"] == [str(u / "sources" / "transcript.json"), str(u / "sources" / "source.json")]
-    assert steps[1]["writes"] == [str(u / "sources" / "slides" / "pages.json")]
+    assert steps[1]["writes"] == [str(u / "sources" / "slides" / "pages.json"), str(u / "sources" / "source.json")]
     assert not unit.exists()
+
+
+def test_slides_step_always_writes_source(tmp_path):
+    # Task 25: slides --pdf records its digest in source.json, existing or not.
+    touch(tmp_path, "v.srt", "a.pdf")
+    steps = route(tmp_path)["steps"]
+    assert steps[1]["writes"] == ["<unit>/sources/slides/pages.json", "<unit>/sources/source.json"]
 
 
 def test_slides_first_may_write_source(tmp_path):
@@ -272,3 +282,51 @@ def test_no_media_question_when_transcript_exists(tmp_path):
     assert plan["questions"] == []
     assert kinds(plan["steps"])[0] == ["acquire", "import"]
     assert not any(s["argv"][1:3] == ["acquire", "local"] for s in plan["steps"])
+
+
+# ---- Task 25: media for the import, unsafe names ---------------------------------
+
+
+def test_import_step_carries_the_media_file(tmp_path):
+    touch(tmp_path, "v.mp4", "v.srt")
+    root = tmp_path.resolve()
+    step = route(tmp_path)["steps"][0]
+    assert step["argv"] == [
+        "tutor-any-lecture", "acquire", "import", "--file", str(root / "v.srt"),
+        "--media", str(root / "v.mp4"), "--unit", "<unit>",
+    ]
+    assert step["reads"] == [str(root / "v.srt"), str(root / "v.mp4")]
+
+    # Two recordings: which one is unknown, so no --media.
+    touch(tmp_path / "two", "a.mp4", "b.m4a", "x.srt")
+    assert "--media" not in route(tmp_path / "two")["steps"][0]["argv"]
+    # A Panopto extract takes no --media.
+    touch(tmp_path / "pan", "v.mp4")
+    (tmp_path / "pan" / "extract.json").write_bytes(fx("panopto", "plain.json").read_bytes())
+    assert "--media" not in route(tmp_path / "pan")["steps"][0]["argv"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="these characters are not allowed in Windows file names")
+def test_unsafe_file_names_are_not_planned(tmp_path):
+    touch(tmp_path, "$(touch x).mp4", "ok.vtt")
+    plan = route(tmp_path)
+    root = tmp_path.resolve()
+    odd = str(root / "$(touch x).mp4")
+    assert [s["argv"][1:5] for s in plan["steps"]] == [["acquire", "import", "--file", str(root / "ok.vtt")]]
+    assert not any(odd in s["argv"] or odd in s["reads"] for s in plan["steps"])
+    assert plan["files"]["other"] == [odd] and plan["files"]["video"] == []
+    assert [q["about"] for q in plan["questions"]] == ["unsafe-name"]
+    q = plan["questions"][0]
+    assert q["candidates"] == [odd]
+    assert q["text"] == ("These file names contain characters that are unsafe on a command line; "
+                         "rename them, then run the route again.")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="these characters are not allowed in Windows file names")
+@pytest.mark.parametrize("name", ["a`b`.srt", 'q"x.pdf', "back\\slash.mp3", "semi;colon.vtt", "pipe|x.mp4",
+                                  "amp&x.mp4", "lt<x.mp4", "gt>x.mp4", "tab\tx.srt"])
+def test_each_unsafe_character_is_caught(tmp_path, name):
+    touch(tmp_path, name)
+    plan = route(tmp_path)
+    assert plan["steps"] == [] and plan["files"]["other"] == [str(tmp_path.resolve() / name)]
+    assert [q["about"] for q in plan["questions"]] == ["unsafe-name"]

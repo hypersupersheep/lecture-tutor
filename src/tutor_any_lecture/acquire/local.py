@@ -17,7 +17,7 @@ from tutor_any_lecture import asr, slides
 
 from ..ffmpeg import extract_audio, media_duration
 from ..profile import Profile
-from ..source import SourceInfo, sha256_file
+from ..source import SourceInfo, sha256_file, slide_digests
 from ..transcript import AcquireError, EmptyTranscript, Health, health
 from ..unit import UnitPaths
 
@@ -119,9 +119,12 @@ def temp_dir():
             shutil.rmtree(own_parent, ignore_errors=True)
 
 
-def _refuse_overwrite(unit: Path, force: bool) -> None:
+def refuse_overwrite(unit: Path, force: bool) -> None:
+    """The overwrite guard every acquisition calls first, before it reads its input.
+
+    Keyed on transcript.json only: a slides-only source.json may be replaced freely.
+    """
     transcript = UnitPaths(unit).transcript
-    # Keyed on transcript.json only: a slides-only source.json may be replaced freely.
     if transcript.exists() and not force:
         raise FileExistsError(f"{transcript} already exists; rerun with --force to replace it")
 
@@ -141,7 +144,7 @@ def transcribe_audio(
     model: str | None = None,
 ) -> Health:
     """Transcribe ``audio`` as it is (no extraction) into the unit."""
-    _refuse_overwrite(unit, force)
+    refuse_overwrite(unit, force)
     audio = Path(audio)
     _require_file(audio)
     return _transcribe_into_unit(audio, audio, unit, profile, budget_minutes, backend, model)
@@ -155,7 +158,7 @@ def acquire_local(
     budget_minutes: float | None = None,
 ) -> Health:
     """Extract ``file``'s audio to a temp folder, transcribe it into the unit, delete the audio."""
-    _refuse_overwrite(unit, force)
+    refuse_overwrite(unit, force)
     file = Path(file)
     _require_file(file)
     # Before the extraction, so a missing backend costs no audio work.
@@ -200,7 +203,7 @@ def _transcribe_into_unit(
         acquisition="asr",
         health=dataclasses.asdict(h),
         tool_versions=_tool_versions(name, model, getattr(transcript, "device", None)),
-        inputs_sha256={origin.name: sha256_file(origin)},
+        inputs_sha256={**slide_digests(paths.source), origin.name: sha256_file(origin)},
     ).write(paths.source)
     return h
 

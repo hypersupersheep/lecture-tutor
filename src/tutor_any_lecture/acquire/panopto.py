@@ -6,11 +6,13 @@ import dataclasses
 import json
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from .. import __version__
-from ..source import SourceInfo, sha256_file
+from ..source import SourceInfo, sha256_file, slide_digests
 from ..transcript import EmptyTranscript, Health, Transcript, health, parse_stamped_txt
 from ..unit import UnitPaths
+from .local import refuse_overwrite
 
 _LINE_STAMP = re.compile(r"^\[(\d+:\d{2}(?::\d{2})?)\]", flags=re.M)
 _CHAPTER = re.compile(r"^(.*\S)\s+(\d+:\d{2}(?::\d{2})?)$")
@@ -83,6 +85,21 @@ def _chapters(contents) -> list[dict]:
     return chapters
 
 
+def _viewer_url(url) -> str | None:
+    """The viewer address without what could grant access to it.
+
+    Scheme, host and path stay, with the ``id`` query parameter only: tokens, other
+    parameters, a user name in the host and the fragment are dropped.
+    """
+    if not isinstance(url, str) or not url.strip():
+        return None
+    parts = urlsplit(url.strip())
+    ids = parse_qs(parts.query).get("id")
+    query = urlencode({"id": ids[0]}) if ids else ""
+    host = parts.netloc.rpartition("@")[2]
+    return urlunsplit((parts.scheme, host, parts.path, query, ""))
+
+
 def _lecture_date(details: str) -> str | None:
     m = _LECTURE_DATE.search(details)
     return f"{m.group(1)} {m.group(2)}" if m else None
@@ -93,8 +110,7 @@ def import_panopto(extract: Path, unit: Path, force: bool) -> Health:
     paths = UnitPaths(unit)
     # The guard comes first, before the extract is read; it keys on transcript.json only,
     # so a slides-only unit (source.json without transcript.json) is replaced.
-    if paths.transcript.exists() and not force:
-        raise FileExistsError(f"{paths.transcript} already exists; rerun with --force to replace it")
+    refuse_overwrite(unit, force)
 
     d = load_extract(extract)
     text = d["transcript"] if isinstance(d.get("transcript"), str) else ""
@@ -113,14 +129,14 @@ def import_panopto(extract: Path, unit: Path, force: bool) -> Health:
     SourceInfo(
         kind="platform",
         title=d.get("title") or "",
-        url=d.get("url") or None,
+        url=_viewer_url(d.get("url")),
         platform="panopto",
         duration=duration,
         lecture_language=None,
         acquisition="panopto",
         health=dataclasses.asdict(h),
         tool_versions={"tutor-any-lecture": __version__},
-        inputs_sha256={extract.name: sha256_file(extract)},
+        inputs_sha256={**slide_digests(paths.source), extract.name: sha256_file(extract)},
         lecture_date=_lecture_date(details),
     ).write(paths.source)
     return h

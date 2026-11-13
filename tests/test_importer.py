@@ -6,9 +6,13 @@ import shutil
 import pytest
 
 from conftest import fx
+from fixtures.make_pdf import make_pdf
+from tutor_any_lecture import ffmpeg
 from tutor_any_lecture.acquire.importer import import_transcript
 from tutor_any_lecture.cli import main
+from tutor_any_lecture.slides import extract_pdf
 from tutor_any_lecture.source import SourceInfo, sha256_file
+from tutor_any_lecture.transcript import AcquireError
 from tutor_any_lecture.transcript import Transcript
 from tutor_any_lecture.unit import UnitPaths
 
@@ -191,3 +195,76 @@ def test_cli_import_missing_file_is_error_json(tmp_path, capsys):
     assert code == 1
     assert_error_json(capsys.readouterr().out)
     assert not UnitPaths(unit).transcript.exists()
+
+
+# ---- Task 25: slide digest, media duration -------------------------------------
+
+
+def test_import_keeps_the_slide_digest(tmp_path):
+    unit = tmp_path / "unit"
+    pdf = make_pdf(tmp_path, ["Compound interest\n1/1"])
+    extract_pdf(pdf, unit)
+    src = fx("transcripts", "cues.vtt")
+    import_transcript(src, unit, None, False)
+    info = SourceInfo.read(UnitPaths(unit).source)
+    assert info.kind == "transcript"
+    assert info.inputs_sha256 == {"cues.vtt": sha256_file(src), "slides.pdf": sha256_file(pdf)}
+    # A forced re-import replaces source.json again and still carries the deck's entry.
+    import_transcript(src, unit, None, True)
+    assert SourceInfo.read(UnitPaths(unit).source).inputs_sha256 == info.inputs_sha256
+
+
+def fake_probe(monkeypatch, seconds):
+    """Local helper: ffmpeg's duration probe returns ``seconds``; the probed paths are recorded."""
+    probed = []
+
+    def probe(path):
+        probed.append(path)
+        return seconds
+
+    monkeypatch.setattr(ffmpeg, "media_duration", probe)
+    return probed
+
+
+def test_import_reads_duration_from_media(monkeypatch, tmp_path, capsys):
+    probed = fake_probe(monkeypatch, 600.0)
+    media = tmp_path / "课程 资料" / "lecture.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"")
+    unit = tmp_path / "u"
+    h = import_transcript(fx("transcripts", "cues.vtt"), unit, None, False, media=media)
+    assert probed == [media]
+    assert h.duration_known and not h.ok   # cues.vtt covers far less than 600 s
+    assert SourceInfo.read(UnitPaths(unit).source).duration == 600.0
+
+    argv = ["acquire", "import", "--file", str(fx("transcripts", "cues.vtt")), "--unit", str(unit),
+            "--media", str(media), "--force"]
+    assert main(argv) == 1
+    obj = json.loads(capsys.readouterr().out)
+    assert obj["status"] == "unhealthy" and obj["health"]["duration_known"] is True
+    assert probed[-1] == media
+
+
+def test_unreadable_media_is_acquire_error(monkeypatch, tmp_path, capsys):
+    fake_probe(monkeypatch, None)
+    media = tmp_path / "broken.mp4"
+    media.write_bytes(b"not media")
+    unit = tmp_path / "u"
+    with pytest.raises(AcquireError):
+        import_transcript(fx("transcripts", "cues.vtt"), unit, None, False, media=media)
+    assert not UnitPaths(unit).transcript.exists()
+    assert main(["acquire", "import", "--file", str(fx("transcripts", "cues.vtt")), "--unit", str(unit),
+                 "--media", str(media)]) == 1
+    assert_error_json(capsys.readouterr().out)
+
+
+def test_cli_import_media_and_duration_conflict(monkeypatch, tmp_path):
+    probed = fake_probe(monkeypatch, 600.0)
+    media = tmp_path / "lecture.mp4"
+    media.write_bytes(b"")
+    unit = tmp_path / "u"
+    with pytest.raises(SystemExit) as exc:
+        main(["acquire", "import", "--file", str(fx("transcripts", "cues.vtt")), "--unit", str(unit),
+              "--media", str(media), "--duration", "600"])
+    assert exc.value.code == 2
+    assert probed == [] and not unit.exists()

@@ -6,9 +6,10 @@ import dataclasses
 import json
 from pathlib import Path
 
-from .. import __version__
-from ..source import SourceInfo, sha256_file
+from .. import __version__, ffmpeg
+from ..source import SourceInfo, sha256_file, slide_digests
 from ..transcript import (
+    AcquireError,
     EmptyTranscript,
     Health,
     Transcript,
@@ -19,14 +20,31 @@ from ..transcript import (
     parse_whisper_json,
 )
 from ..unit import UnitPaths
+from .local import refuse_overwrite
 
 
-def import_transcript(file: Path, unit: Path, duration: float | None, force: bool) -> Health:
+def _media_seconds(media: Path) -> float:
+    """The duration of the lecture recording ``media``, read with ffmpeg."""
+    if not media.is_file():
+        raise FileNotFoundError(f"{media} does not exist or is not a file")
+    seconds = ffmpeg.media_duration(media)
+    if seconds is None or seconds <= 0:
+        raise AcquireError(f"could not read a duration from {media.name}; pass --duration instead")
+    return seconds
+
+
+def import_transcript(
+    file: Path, unit: Path, duration: float | None, force: bool, media: Path | None = None
+) -> Health:
+    """Import ``file`` into the unit. ``media``, the lecture's recording, gives the duration."""
     file = Path(file)
     paths = UnitPaths(unit)
     # The guard comes first, before the input is read; it keys on transcript.json only.
-    if paths.transcript.exists() and not force:
-        raise FileExistsError(f"{paths.transcript} already exists; rerun with --force to replace it")
+    refuse_overwrite(unit, force)
+    if media is not None:
+        if duration is not None:
+            raise ValueError("give the duration or a media file, not both")
+        duration = _media_seconds(Path(media))
 
     text = file.read_bytes().decode("utf-8-sig")
     suffix = file.suffix.lower()
@@ -55,6 +73,6 @@ def import_transcript(file: Path, unit: Path, duration: float | None, force: boo
         acquisition="import",
         health=dataclasses.asdict(h),
         tool_versions={"tutor-any-lecture": __version__},
-        inputs_sha256={file.name: sha256_file(file)},
+        inputs_sha256={**slide_digests(paths.source), file.name: sha256_file(file)},
     ).write(paths.source)
     return h
