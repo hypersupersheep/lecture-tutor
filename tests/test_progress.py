@@ -13,6 +13,7 @@ from tutor_any_lecture.progress import (
     load_attempts,
     log_attempt,
     normalized_gain,
+    paired_scores,
     render_progress,
     retention,
     unit_scores,
@@ -125,8 +126,8 @@ def test_practice_excluded_and_confident_but_wrong():
 
 def test_due_dates():
     att = mk_post(unit="u1", day=date(2026, 11, 20))
-    d = due(att, date(2026, 11, 27))
-    assert {(x["phase"], x["optional"]) for x in d} == {("d1", True), ("d7", False)}
+    assert [(x["phase"], x["optional"]) for x in due(att, date(2026, 11, 21))] == [("d1", True)]
+    assert [(x["phase"], x["optional"]) for x in due(att, date(2026, 11, 27))] == [("d7", False)]
 
 
 def test_due_entry_keys_and_order():
@@ -201,7 +202,7 @@ def test_render_page_content(tmp_path):
         "○·········◆··········  c4",
         "○·········◆·········●  c5",
     ]
-    assert lines[lines.index("## Due today") + 2] == "- u1: d1 (optional), due 2026-11-21"
+    assert lines[lines.index("## Due today") + 2] == "None."
     assert lines[lines.index("## Confident but wrong") + 2] == "- u1: p1 (c1), practice, (01:00)"
 
 
@@ -214,6 +215,8 @@ def test_headline_omits_missing_parts(tmp_path):
 
 
 def test_render_without_attempts(tmp_path):
+    # A log with only a practice attempt: no tracked attempts yet.
+    write_attempts(tmp_path, [attempt(item_id="p1", variant=None, phase="practice", score=1)])
     lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
     assert lines[:3] == ["# Progress — C", "", "No tracked attempts yet."]
     assert "## Units" not in lines and "## By concept" not in lines
@@ -278,7 +281,6 @@ def test_cli_due_prints_json(tmp_path, capsys):
     code = main(["progress", "due", "--course", "C", "--date", "2026-11-27", "--workspace", str(tmp_path)])
     assert code == 0
     assert json.loads(capsys.readouterr().out) == [
-        {"unit": "u1", "phase": "d1", "due": "2026-11-21", "optional": True},
         {"unit": "u1", "phase": "d7", "due": "2026-11-27", "optional": False},
     ]
 
@@ -288,7 +290,7 @@ def test_cli_workspace_defaults_to_profile(tmp_cfg, tmp_path, capsys):
     set_value("workspace", str(ws))
     write_attempts(ws, mk_post(unit="u1", day=date(2026, 11, 20)))
     assert main(["progress", "due", "--course", "C", "--date", "2026-11-27"]) == 0
-    assert [x["phase"] for x in json.loads(capsys.readouterr().out)] == ["d1", "d7"]
+    assert [x["phase"] for x in json.loads(capsys.readouterr().out)] == ["d7"]
 
 
 def test_cli_render_writes_page(tmp_path, capsys):
@@ -403,3 +405,60 @@ def test_rendered_page_layout(tmp_path):
     ])
     page = render_progress("C", tmp_path, date(2026, 11, 21))
     assert page.read_text(encoding="utf-8") == RENDERED_PAGE
+
+
+# ---- paired gain and retention, what is due (Task 23) ------------------------
+
+
+def test_gain_pairs_concepts(tmp_path):
+    att = [
+        attempt(item_id="c1-A", variant="A", concept="c1", phase="pre", score=1),
+        attempt(item_id="c2-A", variant="A", concept="c2", phase="pre", score=0),
+        attempt(item_id="c2-B", variant="B", concept="c2", phase="post", score=0.5),
+    ]
+    assert paired_scores(att, "pre", "post") == {"u1": {"pre": 0.0, "post": 0.5}}
+    assert normalized_gain(paired_scores(att, "pre", "post")) == pytest.approx(0.5)
+    write_attempts(tmp_path, att)
+    lines = render_progress("C", tmp_path, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
+    assert lines[2] == "Across 1 units: pre 0.50 → post 0.50; normalized gain 0.50."
+    assert "| u1 | 0.50 | 0.50 | — | 0.50 | — |" in lines
+
+
+def test_retention_pairs_concepts(tmp_path):
+    att = mk(unit="u1", post=[1, 0.5], d7=[0.5])
+    assert paired_scores(att, "post", "d7") == {"u1": {"post": 1.0, "d7": 0.5}}
+    assert retention(paired_scores(att, "post", "d7")) == pytest.approx(0.5)
+    write_attempts(tmp_path, att)
+    lines = render_progress("C", tmp_path, date(2026, 11, 27)).read_text(encoding="utf-8").splitlines()
+    assert lines[2] == "Across 1 units: post 0.75 → day 7 0.50; retention 0.50."
+    assert "| u1 | — | 0.75 | 0.50 | — | 0.50 |" in lines
+    # no concept with both phases: the value is missing
+    lonely = mk(unit="u2", post=[1]) + [attempt(unit="u2", item_id="c2-C", variant="C", concept="c2", phase="d7")]
+    assert paired_scores(lonely, "post", "d7") == {}
+    assert retention(paired_scores(lonely, "post", "d7")) is None
+
+
+def test_due_lists_post_after_pretest():
+    att = mk(unit="u1", pre=[0, 1]) + [attempt(ts="2026-11-22T10:00:00+00:00", unit="u1", item_id="c3-A",
+                                               variant="A", concept="c3", phase="pre", score=0)]
+    att += mk_post(unit="u2", day=date(2026, 11, 20))
+    assert due(att, date(2026, 11, 20)) == [
+        {"unit": "u1", "phase": "post", "due": "2026-11-20", "optional": False},
+    ]
+    assert due(att, date(2026, 11, 19)) == []
+
+
+def test_optional_d1_expires_at_d7():
+    att = mk_post(unit="u1", day=date(2026, 11, 20))
+    assert [x["phase"] for x in due(att, date(2026, 11, 26))] == ["d1"]
+    assert due(att, date(2026, 11, 27)) == [{"unit": "u1", "phase": "d7", "due": "2026-11-27", "optional": False}]
+    early_d7 = att + [attempt(ts="2026-11-25T10:00:00+00:00", item_id="c1-C", variant="C", phase="d7")]
+    assert due(early_d7, date(2026, 11, 25)) == []
+
+
+def test_render_refuses_unknown_course(tmp_path):
+    write_attempts(tmp_path)
+    with pytest.raises(FileNotFoundError) as e:
+        render_progress("Nope", tmp_path, date(2026, 11, 20))
+    assert str(e.value) == "no progress log for course 'Nope'"
+    assert not (tmp_path / "progress" / "Nope.md").exists()
