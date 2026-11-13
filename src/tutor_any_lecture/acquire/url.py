@@ -179,7 +179,9 @@ def _try_caption(url: str, kind: str, lang: str, duration: float | None) -> tupl
     return (segments, h) if h.ok else None
 
 
-def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | None) -> Transcript:
+def _asr_from_audio(
+    url: str, unit: Path, profile: Profile, duration: float | None, budget_minutes: float | None
+) -> Transcript:
     """Download the audio stream only, transcribe it, and delete it."""
     # Before the download: with no usable backend, BackendMissing is raised and nothing is fetched.
     backend, model = asr.resolve_backend()
@@ -207,7 +209,7 @@ def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | No
             wav,
             language,
             slide_terms(load_pages(unit)),
-            asr.default_budget_minutes(duration),
+            asr.default_budget_minutes(duration) if budget_minutes is None else budget_minutes,
             backend=backend,
             model=model,
         )
@@ -216,7 +218,9 @@ def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | No
 # --- the adapter -------------------------------------------------------------
 
 
-def acquire_url(url: str, unit: Path, profile: Profile, force: bool) -> Health:
+def acquire_url(
+    url: str, unit: Path, profile: Profile, force: bool, budget_minutes: float | None = None
+) -> Health:
     paths = UnitPaths(unit)
     # The guard comes first, before yt-dlp is touched; it keys on transcript.json only.
     if paths.transcript.exists() and not force:
@@ -248,7 +252,7 @@ def acquire_url(url: str, unit: Path, profile: Profile, force: bool) -> Health:
 
     if profile.public_video_audio != "on":
         raise NeedsUserFile()
-    transcript = _asr_from_audio(url, unit, profile, duration)
+    transcript = _asr_from_audio(url, unit, profile, duration, budget_minutes)
     if not transcript.segments:
         raise EmptyTranscript("no timed segments found")
     h = health(transcript.segments, duration)

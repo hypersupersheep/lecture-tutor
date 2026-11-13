@@ -479,3 +479,25 @@ def test_no_backend_means_no_audio_download(monkeypatch, fake_ydl_no_caps, fake_
     assert fake_ydl_no_caps.downloads == [] and fake_ydl_no_caps.folders == []
     assert fake_asr.calls == []
     assert not UnitPaths(tmp_path).transcript.exists()
+
+
+def test_cli_url_budget_minutes_reaches_transcribe(tmp_cfg, fake_ydl_no_caps, fake_asr, tmp_path, capsys):
+    assert main(["profile", "set", "public_video_audio", "on", "--i-understand"]) == 0
+    capsys.readouterr()
+    unit = tmp_path / "课程 资料" / "第1周"
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit), "--budget-minutes", "7"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    assert fake_asr.calls[0]["budget_minutes"] == 7.0
+    # Without the flag the default stays: max(30, 2 x 2400 s / 60) = 80.
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit), "--force"]) == 0
+    assert fake_asr.calls[1]["budget_minutes"] == 80.0
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
+def test_cli_url_budget_minutes_must_be_positive(tmp_cfg, fake_ydl_no_caps, fake_asr, tmp_path, value):
+    unit = tmp_path / "unit"
+    with pytest.raises(SystemExit) as exc:
+        main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit), "--budget-minutes", value])
+    assert exc.value.code == 2
+    assert fake_ydl_no_caps.all_opts == [] and fake_asr.calls == []
+    assert not UnitPaths(unit).transcript.exists()

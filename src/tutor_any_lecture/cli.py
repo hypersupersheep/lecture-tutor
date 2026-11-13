@@ -162,7 +162,9 @@ def _cmd_acquire_url(args) -> int:
 
     profile = load_profile()
     try:
-        return _run_acquire(lambda: acquire_url(args.url, Path(args.unit), profile, args.force))
+        return _run_acquire(
+            lambda: acquire_url(args.url, Path(args.unit), profile, args.force, budget_minutes=args.budget_minutes)
+        )
     except NeedsUserFile as e:
         print(json.dumps({"status": "needs_user_file", "message": str(e)}, ensure_ascii=False))
         return EXIT_BY_ERROR["NeedsUserFile"]
@@ -490,6 +492,8 @@ def build_parser() -> argparse.ArgumentParser:
     url.add_argument("--url", required=True, help="the video URL")
     url.add_argument("--unit", required=True, help="the unit folder")
     url.add_argument("--force", action="store_true", help="replace an existing transcript")
+    url.add_argument("--budget-minutes", type=_positive_number, default=None,
+                     help="stop ASR after this many minutes (default: max(30, 2 x the video length))")
     url.set_defaults(func=_cmd_acquire_url)
     rte = acquire_sub.add_parser("route", help="plan the acquisition commands for a materials folder (runs nothing)")
     rte.add_argument("--folder", required=True, help="the materials folder")
