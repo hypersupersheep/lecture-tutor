@@ -344,6 +344,8 @@ def test_citation_is_added_when_the_back_ends_otherwise(tmp_path):
     assert row[1].endswith("<br><small>(4:14–4:37)</small>")
     row = exported_row(tmp_path / "other", back="Several (4:14).", citation="(4:14–4:37)")
     assert row[1].endswith("<br><small>(4:14–4:37)</small>")
+    # an empty citation adds nothing, as before
+    assert exported_row(tmp_path / "empty", back="Several.", citation=" ")[1] == "Several."
 
 
 def test_back_length_rule_covers_miss_cards():

@@ -219,10 +219,10 @@ def ends_with_citation(back: str, citation: str) -> bool:
     """True when ``back`` already ends with ``citation``, as a miss card's item answer often does.
 
     Trailing spaces and punctuation are ignored on both sides, and full-width parentheses
-    count as ordinary ones: "…不止一个（4:14–4:37）。" ends with "(4:14–4:37)".
+    count as ordinary ones: "…不止一个（4:14–4:37）。" ends with "(4:14–4:37)". An empty
+    citation (which the card checks fail) is taken as present, so nothing is appended.
     """
-    cite = _without_trailing_marks(citation)
-    return bool(cite) and _without_trailing_marks(back).endswith(cite)
+    return _without_trailing_marks(back).endswith(_without_trailing_marks(citation))
 
 
 def export_tsv(unit: Path) -> Path:
