@@ -17,7 +17,7 @@ from .checks import CheckResult
 from .items import find_item, load_items
 from .plan import load_plan, read_json
 from .progress import load_attempts
-from .textstats import char_jaccard
+from .textstats import DISPLAY_MATH_RE, INLINE_CODE_RE, INLINE_MATH_RE, char_jaccard, fenced_lines
 from .unit import UnitPaths
 
 KINDS = ("core", "miss")
@@ -27,6 +27,8 @@ MISS_CAP = 10
 DUPLICATE_THRESHOLD = 0.8
 BACK_MAX = 350
 MISS_PHASES = ("post", "d1", "d7", "d21")
+# "\\$" is a literal dollar sign: hidden behind this placeholder while math is converted.
+_DOLLAR_PLACEHOLDER = "\ue000"
 TSV_HEADER = (
     "#separator:tab",
     "#html:true",
@@ -137,11 +139,70 @@ def validate_cards(cards, goal: str, lang: str) -> list[CheckResult]:
 # ---------------------------------------------------------------- export
 
 
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _math(text: str) -> str:
+    """$$…$$ becomes \\[…\\] and $…$ becomes \\(…\\), Anki's MathJax delimiters; \\$ is a plain $."""
+    text = text.replace("\\$", _DOLLAR_PLACEHOLDER)
+    text = DISPLAY_MATH_RE.sub(lambda m: "\\[" + m.group()[2:-2] + "\\]", text)
+    text = INLINE_MATH_RE.sub(lambda m: "\\(" + m.group()[1:-1] + "\\)", text)
+    return text.replace(_DOLLAR_PLACEHOLDER, "$")
+
+
+def _prose(text: str) -> str:
+    """Text outside fenced blocks: inline code verbatim in <code>, math converted around it."""
+    out: list[str] = []
+    pos = 0
+    for m in INLINE_CODE_RE.finditer(text):
+        out.append(_math(_escape(text[pos : m.start()])))
+        ticks = len(m.group(1))
+        out.append("<code>" + _escape(m.group()[ticks:-ticks]) + "</code>")
+        pos = m.end()
+    out.append(_math(_escape(text[pos:])))
+    return "".join(out)
+
+
 def _field(text: str) -> str:
-    """A TSV field: line breaks and tabs become <br>; nothing else is escaped."""
-    for old in ("\r\n", "\r", "\n", "\t"):  # \r\n first, so it gives one <br>, not two
-        text = text.replace(old, "<br>")
-    return text
+    """One TSV field as Anki HTML.
+
+    In this order: escape &, < and >; a fenced code block becomes <pre><code>…</code></pre>
+    (tabs in it four spaces, so its indentation survives) and inline code <code>…</code>;
+    outside code, $$…$$ and $…$ become MathJax delimiters; then line breaks and tabs become <br>.
+    """
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    fenced = fenced_lines(lines)
+    pieces: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and fenced[j] == fenced[i]:
+            j += 1
+        if not fenced[i]:
+            pieces.append(_prose("\n".join(lines[i:j])))
+        else:
+            # A run of fenced lines may hold several blocks: each opens on a fence line
+            # and closes on the next line that starts with the same fence.
+            block: list[str] = []
+            fence = None
+            for line in lines[i:j]:
+                stripped = line.lstrip()
+                if fence is None:
+                    fence = stripped[:3]
+                elif stripped.startswith(fence):
+                    pieces.append(_code_block(block))
+                    block, fence = [], None
+                else:
+                    block.append(line)
+            if fence is not None:  # never closed: the block runs to the end of the field
+                pieces.append(_code_block(block))
+        i = j
+    return "\n".join(pieces).replace("\n", "<br>").replace("\t", "<br>")
+
+
+def _code_block(lines: list[str]) -> str:
+    return "<pre><code>" + _escape("\n".join(lines).replace("\t", "    ")) + "</code></pre>"
 
 
 def export_tsv(unit: Path) -> Path:
@@ -153,7 +214,10 @@ def export_tsv(unit: Path) -> Path:
 
     lines = [h.format(course=course, unit=unit_name) for h in TSV_HEADER]
     for c in cards:
-        back = f"{_field(c.back)}<br><small>{_field(c.citation)}</small>"
+        back = _field(c.back)
+        # A back that already ends with its citation (a miss card's item answer often does) gets no second one.
+        if not c.back.rstrip().endswith(c.citation.strip()):
+            back += f"<br><small>{_field(c.citation)}</small>"
         row = (_field(c.front), back, tag(course, unit_name, c.concept), guid(course, unit_name, c.id))
         lines.append("\t".join(row))
     paths.cards_tsv.write_text("".join(line + "\n" for line in lines), encoding="utf-8", newline="\n")

@@ -273,3 +273,52 @@ def test_cli_bare_cards_is_usage():
     with pytest.raises(SystemExit) as e:
         main(["cards"])
     assert e.value.code == 2
+
+
+# ---- safe HTML, math and code (Task 23) --------------------------------------
+
+
+def exported_row(tmp_path, front="Q?", back="A.", citation="(slide 1)"):
+    """Local helper: export one core card and return its row's fields."""
+    u = unit_with_cards(tmp_path, n=1)
+    write_json(UnitPaths(u).cards_json, [
+        {"id": "k1", "concept": "c1", "front": front, "back": back, "citation": citation},
+    ])
+    return export_tsv(u).read_text(encoding="utf-8").split("\n")[6].split("\t")
+
+
+def test_export_escapes_html(tmp_path):
+    row = exported_row(tmp_path, front="Is a<b when std::vector<int> v(3)? R&D", citation="(slide 1 & 2)")
+    assert row[0] == "Is a&lt;b when std::vector&lt;int&gt; v(3)? R&amp;D"
+    assert row[1] == "A.<br><small>(slide 1 &amp; 2)</small>"
+
+
+def test_export_converts_math(tmp_path):
+    assert exported_row(tmp_path / "a", front=r"$\hat{\theta} = \bar{X}$")[0] == r"\(\hat{\theta} = \bar{X}\)"
+    assert exported_row(tmp_path / "b", front="$$x^2$$")[0] == r"\[x^2\]"
+    assert exported_row(tmp_path / "c", front=r"costs \$5")[0] == "costs $5"
+    assert exported_row(tmp_path / "d", front=r"$a<b$ but `$x$ \$y` stays")[0] == (
+        r"\(a&lt;b\) but <code>$x$ \$y</code> stays")
+
+
+def test_export_keeps_code_blocks(tmp_path):
+    back = "Run this:\n```cpp\nif (a<b) {\n    return v[0];\n}\n```\nDone."
+    row = exported_row(tmp_path, back=back)
+    assert row[1] == (
+        "Run this:<br><pre><code>if (a&lt;b) {<br>    return v[0];<br>}</code></pre><br>Done."
+        "<br><small>(slide 1)</small>"
+    )
+
+
+def test_miss_card_citation_appears_once(tmp_path):
+    u, ws = unit_with_misses(tmp_path, misses=1)
+    path = UnitPaths(u).items
+    items = json.loads(path.read_text(encoding="utf-8"))
+    for variants in items["tracked"].values():
+        for it in variants.values():
+            it["answer"] = f"{it['answer']} {it['citation']}"
+    write_json(path, items)
+    assert add_misses(u, "C", ws) == 1
+    rows = UnitPaths(u).cards_tsv.read_text(encoding="utf-8").splitlines()[6:]
+    assert rows[2].split("\t")[1] == "Answer c1-A. (slide 1)"
+    assert rows[0].split("\t")[1] == "A1.<br><small>(slide 1)</small>"
