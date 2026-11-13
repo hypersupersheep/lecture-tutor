@@ -171,13 +171,23 @@ def test_ps1_files_are_ascii_for_windows_powershell():
         assert (ROOT / path).read_bytes().isascii(), path
 
 
+# A ternary, `$a ? $b : $c`, outside string literals: a lone ? and later a lone :.
+PS_TERNARY = re.compile(r"(?<=\s)\?(?=\s)[^\n]*?\s:(?=\s)")
+PS_STRING = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"")
+
+
 def test_ps1_avoids_powershell_7_only_operators():
+    # The ternary pattern finds what it is meant to find, and leaves strings alone.
+    assert PS_TERNARY.search("$x = $ok ? 'yes' : 'no'")
+    assert not PS_TERNARY.search(PS_STRING.sub("''", "Write-Host 'Proceed ? [y/N] : '"))
     for path in PS1_FILES:
         code = "\n".join(
             line.split("#", 1)[0] for line in (ROOT / path).read_text(encoding="utf-8").splitlines()
         )
         for token in ("??", "&&", "||", "?."):
             assert token not in code, (path, token)
+        bare = PS_STRING.sub("''", code)
+        assert not PS_TERNARY.search(bare), (path, "ternary")
 
 
 def test_ps1_declares_the_new_flags():
@@ -399,13 +409,14 @@ def test_sdist_includes_only_public_files():
     include = re.search(r"^include\s*=\s*\[(.*?)\]", section.group(1), re.M | re.S)
     assert include, "no include list"
     entries = re.findall(r'"([^"]*)"', include.group(1))
+    # Each entry is anchored at the repository root, so none matches at any depth.
     assert entries == [
-        "src/",
-        "README.md",
-        "README.zh-CN.md",
-        "LICENSE",
-        "THIRD_PARTY_NOTICES.md",
-        "pyproject.toml",
+        "/src",
+        "/README.md",
+        "/README.zh-CN.md",
+        "/LICENSE",
+        "/THIRD_PARTY_NOTICES.md",
+        "/pyproject.toml",
     ]
 
 
@@ -422,6 +433,12 @@ def test_ci_runs_the_installer_under_windows_powershell_5_1():
     assert any(base + " -DryRun" in r for r in runs)
     assert any(base + " -Yes -From . -Agents claude" in r for r in runs)
     assert any("cli-path" in r and "selftest" in r for r in runs)
+    # The 5.1 install must write cli-path itself: the earlier pwsh install's file is removed first.
+    real = [r for r in runs if base + " -Yes -From . -Agents claude" in r]
+    assert len(real) == 1
+    removal = real[0].find("Remove-Item")
+    assert removal != -1 and "cli-path" in real[0][removal:real[0].find(base)]
+    assert removal < real[0].find(base)
 
 
 def test_ci_installs_from_a_folder_with_space_and_cjk_on_every_os():

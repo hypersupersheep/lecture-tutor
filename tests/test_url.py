@@ -14,6 +14,7 @@ from tutor_any_lecture.acquire import url as url_module
 from tutor_any_lecture.acquire.url import NeedsUserFile, _unroll_auto, acquire_url, pick_caption
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.profile import PUBLIC_VIDEO_AUDIO_NOTICE, ConsentRequired, Profile
+from tutor_any_lecture.source import url_without_tokens
 from tutor_any_lecture.transcript import AcquireError, Segment, Transcript, parse_vtt
 from tutor_any_lecture.unit import UnitPaths
 
@@ -699,3 +700,13 @@ def test_capture_platform_url_is_stored_without_tokens(monkeypatch, tmp_path, pr
     _install(monkeypatch, info(subs={"en": [orig()]}, lang="en"), {("cc", "en"): GOOD_VTT})
     assert acquire_url(public, other, profile_off, False).ok
     assert read_source(other)["url"] == public
+
+
+# ---- Task 28: recording ids kept in cleaned addresses ----------------------------
+
+
+def test_cleaner_keeps_the_recording_id_parameters():
+    assert url_without_tokens("https://example.yuja.com/V/Video?v=1&token=S#x") == "https://example.yuja.com/V/Video?v=1"
+    kept = url_without_tokens("https://x.example/p?token=S&entry_id=0_ab&vid=7&mid=9&entryid=e&id=3&sig=Q")
+    assert kept == "https://x.example/p?entry_id=0_ab&vid=7&mid=9&entryid=e&id=3"
+    assert url_without_tokens("https://u:pw@x.example/p?auth=S#t=5") == "https://x.example/p"

@@ -33,14 +33,15 @@ path = "src/tutor_any_lecture/__init__.py"
 packages = ["src/tutor_any_lecture"]
 
 # An allow-list: nothing else in the checkout (docs, tests, skills, planning files) goes into an sdist.
+# Each entry starts with "/", so it matches at the repository root only, never deeper.
 [tool.hatch.build.targets.sdist]
 include = [
-  "src/",
-  "README.md",
-  "README.zh-CN.md",
-  "LICENSE",
-  "THIRD_PARTY_NOTICES.md",
-  "pyproject.toml",
+  "/src",
+  "/README.md",
+  "/README.zh-CN.md",
+  "/LICENSE",
+  "/THIRD_PARTY_NOTICES.md",
+  "/pyproject.toml",
 ]
 
 [tool.pytest.ini_options]

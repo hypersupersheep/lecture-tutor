@@ -7,7 +7,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .plan import read_json
 
@@ -116,17 +116,26 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Query parameters that name a recording on the capture platforms (Panopto's id,
+# YuJa's v, Kaltura's entry_id, ...); everything else in a query may be a token.
+RECORDING_ID_PARAMS = ("id", "v", "vid", "mid", "entry_id", "entryid")
+
+
 def url_without_tokens(url) -> str | None:
     """A lecture-capture address without what could grant access to it, for source.json.
 
-    Scheme, host and path stay, with the ``id`` query parameter only: tokens, other
+    Scheme, host and path stay, with the recording-id query parameters only
+    (``RECORDING_ID_PARAMS``, the first value of each, in address order): tokens, other
     parameters, a user name in the host and the fragment are dropped. ``None`` for an
     empty or non-text value.
     """
     if not isinstance(url, str) or not url.strip():
         return None
     parts = urlsplit(url.strip())
-    ids = parse_qs(parts.query).get("id")
-    query = urlencode({"id": ids[0]}) if ids else ""
+    kept: dict[str, str] = {}
+    for name, value in parse_qsl(parts.query):
+        if name in RECORDING_ID_PARAMS and name not in kept:
+            kept[name] = value
+    query = urlencode(kept)
     host = parts.netloc.rpartition("@")[2]
     return urlunsplit((parts.scheme, host, parts.path, query, ""))

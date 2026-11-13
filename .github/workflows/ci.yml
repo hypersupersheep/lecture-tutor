@@ -91,6 +91,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
+          # The PowerShell 7 install above recorded cli-path; this install must write it again.
+          Remove-Item -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -Force
           powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Yes -From . -Agents claude
           exit $LASTEXITCODE
       - name: Selftest via recorded CLI path (Windows PowerShell 5.1)
