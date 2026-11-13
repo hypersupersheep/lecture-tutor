@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv pip install --system -e .[dev]
+      - name: Tests
+        run: python -m pytest -q -m "not slow"
+      - name: Selftest
+        run: tutor-any-lecture selftest
+      - name: Doctor (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tutor-any-lecture doctor --json || test $? -eq 3
+      - name: Doctor (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          tutor-any-lecture doctor --json
+          if ($LASTEXITCODE -eq 3) { exit 0 }
+          exit $LASTEXITCODE
+
+  install:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Dry run (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash install.sh --dry-run
+      - name: Dry run (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh install.ps1 -DryRun
+      - name: Real install (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash install.sh --yes --from . --agents claude
+      - name: Real install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -File install.ps1 -Yes -From . -Agents claude
+      - name: Selftest via recorded CLI path (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cli="$(head -n 1 "${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path")"
+          "$cli" selftest
+      - name: Selftest via recorded CLI path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cli = (Get-Content -LiteralPath "$env:APPDATA\tutor-any-lecture\cli-path" -TotalCount 1).Trim()
+          & $cli selftest
+          exit $LASTEXITCODE
