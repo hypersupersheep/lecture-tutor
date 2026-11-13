@@ -217,14 +217,17 @@ def check_asr_model() -> tuple[bool, str]:
     return False, f"{model} is not cached"
 
 
+# Speech recognition is an optional extra: a machine without it is still ready.
+_ASR_FIX = (
+    "Optional: needed only for audio or video without captions. "
+    "Run the installer again with --with-asr (Windows: -WithAsr)."
+)
+
 CHECKS: list[Check] = [
     Check("python", True, check_python,
           "Install Python 3.10 or newer and reinstall tutor-any-lecture with it."),
     Check("ffmpeg", True, check_ffmpeg,
           "Reinstall tutor-any-lecture (imageio-ffmpeg bundles ffmpeg), or install ffmpeg and put it on PATH."),
-    Check("asr_backend", True, check_asr_backend,
-          "Reinstall tutor-any-lecture so its ASR backend is installed: "
-          "mlx-whisper on Apple Silicon, faster-whisper elsewhere."),
     Check("yt_dlp", True, check_yt_dlp,
           "Reinstall tutor-any-lecture so yt-dlp is installed."),
     Check("config_dir", True, check_config_dir,
@@ -235,8 +238,8 @@ CHECKS: list[Check] = [
     Check("browser", False, check_browser,
           "Optional: install Chrome, Chromium or Edge, or set CHROME_PATH to the browser executable; "
           "it is used only for rendered outputs."),
-    Check("asr_model", False, check_asr_model,
-          "Optional: the model downloads once, on the first transcription."),
+    Check("asr_backend", False, check_asr_backend, _ASR_FIX),
+    Check("asr_model", False, check_asr_model, _ASR_FIX),
 ]
 
 

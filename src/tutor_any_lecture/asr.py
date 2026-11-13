@@ -29,6 +29,13 @@ class BackendMissing(Exception):
     """No usable ASR backend is installed, or the requested one is unknown."""
 
 
+# Speech recognition is the optional "asr" extra; the installers add it with this flag.
+NO_BACKEND = (
+    "speech recognition is not installed: run the installer again with --with-asr "
+    "(Windows: -WithAsr), then rerun this command"
+)
+
+
 class BudgetExceeded(Exception):
     """Transcription did not finish within the time budget."""
 
@@ -116,7 +123,7 @@ def select_backend() -> str:
         return "mlx"
     if _installed("faster_whisper"):
         return "faster"
-    raise BackendMissing("no ASR backend is installed: install mlx-whisper (Apple Silicon) or faster-whisper")
+    raise BackendMissing(NO_BACKEND)
 
 
 def _ram_bytes() -> int:

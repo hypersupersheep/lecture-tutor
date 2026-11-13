@@ -219,10 +219,22 @@ def test_media_duration_unknown_is_none(monkeypatch, tmp_path):
     assert ffmpeg.media_duration(tmp_path / "x.srt") is None
 
 
+NO_BACKEND = ("speech recognition is not installed: run the installer again with --with-asr "
+              "(Windows: -WithAsr), then rerun this command")
+
+
 def test_no_backend_installed_is_backend_missing(monkeypatch):
     monkeypatch.setattr(asr, "_installed", lambda module: False)
-    with pytest.raises(BackendMissing, match="no ASR backend is installed"):
+    with pytest.raises(BackendMissing, match="speech recognition is not installed"):
         asr.select_backend()
+
+
+def test_no_backend_message_names_the_installer_flag(monkeypatch):
+    monkeypatch.setattr(asr, "_installed", lambda module: False)
+    with pytest.raises(BackendMissing) as exc:
+        asr.resolve_backend()
+    assert str(exc.value) == NO_BACKEND
+    assert "--with-asr" in str(exc.value) and "-WithAsr" in str(exc.value)
 
 
 def test_select_model_follows_the_ram_threshold(monkeypatch):

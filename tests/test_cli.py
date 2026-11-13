@@ -1,5 +1,7 @@
 import argparse
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -116,3 +118,28 @@ def test_profile_set_with_flag_then_show(tmp_cfg, capsys):
 def test_profile_set_bad_value_returns_1(tmp_cfg, capsys):
     assert main(["profile", "set", "goal", "fast"]) == 1
     assert "goal" in capsys.readouterr().err
+
+
+def toml_list(text, key):
+    """Local helper: the quoted strings of the list ``key = [...]`` that starts a line of ``text``."""
+    m = re.search(rf"^{re.escape(key)}\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    assert m is not None, key
+    return re.findall(r'"([^"]*)"', m.group(1))
+
+
+def toml_section(text, header):
+    """Local helper: the lines of ``text`` under ``[header]``, up to the next table header."""
+    start = text.index(f"[{header}]\n") + len(header) + 3
+    end = text.find("\n[", start)
+    return text[start:] if end == -1 else text[start:end]
+
+
+def test_asr_is_an_extra():
+    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    backends = ("mlx-whisper", "faster-whisper")
+    deps = toml_list(toml_section(text, "project"), "dependencies")
+    assert deps and not any(b in d for d in deps for b in backends)
+    extra = toml_list(toml_section(text, "project.optional-dependencies"), "asr")
+    assert all(any(d.startswith(b) for d in extra) for b in backends)
+    assert "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'" in extra
+    assert "faster-whisper>=1.1; sys_platform != 'darwin' or platform_machine != 'arm64'" in extra

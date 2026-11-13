@@ -13,8 +13,10 @@ from tutor_any_lecture.cli import main
 from tutor_any_lecture.config import config_dir
 from tutor_any_lecture.doctor import run_doctor
 
-REQUIRED = ["python", "ffmpeg", "asr_backend", "yt_dlp", "config_dir"]
-OPTIONAL = ["js_runtime", "browser", "asr_model"]
+REQUIRED = ["python", "ffmpeg", "yt_dlp", "config_dir"]
+OPTIONAL = ["js_runtime", "browser", "asr_backend", "asr_model"]
+ASR_FIX = ("Optional: needed only for audio or video without captions. "
+           "Run the installer again with --with-asr (Windows: -WithAsr).")
 
 
 def patch_checks(monkeypatch, required, optional=True):
@@ -101,7 +103,7 @@ def test_text_output(monkeypatch, capsys):
     patch_checks(monkeypatch, required=True, optional=False)
     assert main(["doctor"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 13
+    assert len(lines) == 14
     assert lines[0] == f"tutor-any-lecture {__version__}"
     assert "[ok] python: patched" in lines
     i = lines.index("[warn] browser: patched")
@@ -112,7 +114,7 @@ def test_text_output(monkeypatch, capsys):
     patch_checks(monkeypatch, required=False)
     assert main(["doctor"]) == 3
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 15
+    assert len(lines) == 14
     j = lines.index("[FAIL] python: patched")
     assert lines[j + 1].startswith("  fix: ") and "Optional" not in lines[j + 1]
     assert "[ok] browser: patched" in lines
@@ -178,7 +180,7 @@ def test_asr_checks(monkeypatch):
     monkeypatch.setattr(asr, "select_backend", missing)
     monkeypatch.setattr(doctor, "CHECKS", [c for c in doctor.CHECKS if c.name in ("asr_backend", "asr_model")])
     d = run_doctor()
-    assert d["ready"] is False
+    assert d["ready"] is True   # both checks are optional: speech recognition is an extra
     assert [(c["name"], c["ok"]) for c in d["checks"]] == [("asr_backend", False), ("asr_model", False)]
     assert d["checks"][0]["detail"] == "BackendMissing: no ASR backend installed"
 
@@ -274,3 +276,16 @@ def test_browser_found_by_command_name(monkeypatch):
     monkeypatch.setattr(doctor, "_browser_candidates", lambda: ["synthetic-browser"])
     monkeypatch.setattr(doctor.shutil, "which", lambda name: "/synthetic/bin/" + name if name == "synthetic-browser" else None)
     assert doctor.check_browser() == (True, "/synthetic/bin/synthetic-browser")
+
+
+def test_ready_without_asr(monkeypatch, tmp_cfg):
+    # No backend importable: find_spec finds neither mlx_whisper nor faster_whisper.
+    monkeypatch.setattr(asr, "_installed", lambda module: False)
+    d = run_doctor()
+    by_name = {c["name"]: c for c in d["checks"]}
+    assert d["ready"] is True
+    assert main(["doctor", "--json"]) == 0
+    for name in ("asr_backend", "asr_model"):
+        assert by_name[name]["ok"] is False
+        assert by_name[name]["fix"] == ASR_FIX
+    assert "--with-asr" in by_name["asr_backend"]["detail"]
