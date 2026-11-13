@@ -203,6 +203,19 @@ def test_new_branch_scans_commits_not_on_any_remote(tmp_cfg, monkeypatch):
     assert code == 1, err
 
 
+def test_annotated_tag_message_is_scanned(tmp_cfg, monkeypatch):
+    write_denylist(tmp_cfg, "SecretWord")
+    repo = new_repo(tmp_cfg, monkeypatch)
+    commit_file(repo, "clean.txt", "hello\n", "c1")
+    git(repo, "tag", "-a", "v1", "-m", "release notes: see secretword")
+    tag = sha(repo, "refs/tags/v1")
+    code, err = run_hook(repo, tmp_cfg, f"refs/tags/v1 {tag} refs/tags/v1 {ZERO}\n")
+    assert code == 1, err
+    git(repo, "tag", "-a", "v2", "-m", "release notes")
+    tag = sha(repo, "refs/tags/v2")
+    code, err = run_hook(repo, tmp_cfg, f"refs/tags/v2 {tag} refs/tags/v2 {ZERO}\n")
+    assert code == 0, err
+
 def test_merge_commit_changes_are_scanned(tmp_cfg, monkeypatch):
     write_denylist(tmp_cfg, "SecretWord")
     repo = new_repo(tmp_cfg, monkeypatch)

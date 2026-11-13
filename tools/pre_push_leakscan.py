@@ -9,7 +9,8 @@ side); any other term matches as a substring.
 What is scanned. Git runs a pre-push hook with one line per pushed ref on stdin:
 "<local ref> <local sha> <remote ref> <remote sha>". For each line the commits in
 <remote sha>..<local sha> are scanned, or <local sha> --not --remotes when the remote
-ref is new; a deleted ref (local sha all zeros) publishes nothing. With nothing on
+ref is new, and so is the message of a pushed annotated tag; a deleted ref (local sha
+all zeros) publishes nothing. With nothing on
 stdin (the script run by hand) it scans the staged diff and the commits of HEAD that
 are not on origin/<branch>, or on no remote at all. Merge commits are shown against
 each parent (git log -m), so a change made only in a merge is scanned too.
@@ -153,8 +154,8 @@ def _stdin_text() -> str:
         raise Blocked(f"leak scan: blocked, cannot read the pushed refs on stdin: {exc}") from None
 
 
-def _pushed_ranges(text: str) -> list[list[str]]:
-    """One git revision range per pushed ref line; a deleted ref adds none."""
+def _pushed_ranges(text: str) -> list[tuple[str, list[str]]]:
+    """(local sha, git revision range) per pushed ref line; a deleted ref adds none."""
     ranges = []
     for line in text.splitlines():
         if not line.strip():
@@ -166,10 +167,22 @@ def _pushed_ranges(text: str) -> list[list[str]]:
         if set(local_sha) == {"0"}:
             continue
         if set(remote_sha) == {"0"}:
-            ranges.append([local_sha, "--not", "--remotes"])
+            ranges.append((local_sha, [local_sha, "--not", "--remotes"]))
         else:
-            ranges.append([f"{remote_sha}..{local_sha}"])
+            ranges.append((local_sha, [f"{remote_sha}..{local_sha}"]))
     return ranges
+
+
+def _tag_text(sha: str) -> str:
+    """The raw text of an annotated tag (and of the tags it points to), else ""."""
+    parts = []
+    obj = sha
+    while _git_text("cat-file", "-t", obj).strip() == "tag":
+        body = _git_text("cat-file", "tag", obj)
+        parts.append(body)
+        # The first line of a tag object is "object <sha>".
+        obj = body.split("\n", 1)[0].split(" ", 1)[1].strip()
+    return "".join(parts)
 
 
 def _head_range() -> list[str]:
@@ -193,9 +206,11 @@ def _binary_paths(numstat_z: str) -> list[str]:
     return paths
 
 
-def _collect(ranges: list[list[str]], staged: bool) -> tuple[str, list[str]]:
-    """The text to scan and the binary paths, for the staged diff and each range."""
-    parts = []
+def _collect(
+    ranges: list[list[str]], staged: bool, tips: list[str]
+) -> tuple[str, list[str]]:
+    """The text to scan and the binary paths: the staged diff, each range, each tag."""
+    parts = [_tag_text(tip) for tip in tips]
     binaries = []
     if staged:
         parts.append(_git_text("diff", "--cached", *DIFF_OPTS))
@@ -226,9 +241,14 @@ def main(argv: list[str] | None = None) -> int:
         allowed = _entries(allow_path, "binary allow list", required=False)
         refs = _stdin_text()
         if refs.strip():
-            text, binaries = _collect(_pushed_ranges(refs), staged=False)
+            pushed = _pushed_ranges(refs)
+            text, binaries = _collect(
+                [rev_range for _, rev_range in pushed],
+                staged=False,
+                tips=[tip for tip, _ in pushed],
+            )
         else:
-            text, binaries = _collect([_head_range()], staged=True)
+            text, binaries = _collect([_head_range()], staged=True, tips=[])
     except Blocked as exc:
         _say(str(exc))
         return 1
