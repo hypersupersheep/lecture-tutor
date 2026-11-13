@@ -12,6 +12,7 @@ import json
 import tempfile
 from importlib import resources
 from pathlib import Path
+from shutil import rmtree
 
 from .acquire.importer import import_transcript
 from .cards import export_tsv
@@ -125,7 +126,14 @@ def run_selftest(tmp: Path | None = None) -> dict:
     if tmp is not None:
         tmp.mkdir(parents=True, exist_ok=True)
         return _run(files, tmp)
-    # A file that Windows still holds open must not turn a finished run into a traceback:
-    # what cannot be removed stays in the system temp folder.
-    with tempfile.TemporaryDirectory(prefix="tutor-any-lecture-selftest-", ignore_cleanup_errors=True) as d:
-        return _run(files, Path(d) / "unit")
+    d = Path(tempfile.mkdtemp(prefix="tutor-any-lecture-selftest-"))
+    try:
+        return _run(files, d / "unit")
+    finally:
+        # A cleanup that fails (a file Windows still holds open, a folder that refuses
+        # removal) never changes the result: what cannot be removed stays in the system
+        # temp folder.
+        try:
+            rmtree(d)
+        except OSError:
+            pass

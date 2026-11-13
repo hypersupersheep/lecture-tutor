@@ -34,6 +34,8 @@ def home(tmp_path):
             folder.mkdir(parents=True, exist_ok=True)
             env[key] = str(folder)
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+    # PowerShell would otherwise write a telemetry id into the home folder it is given.
+    env["POWERSHELL_TELEMETRY_OPTOUT"] = "1"
     return env
 
 
@@ -140,6 +142,27 @@ def ps(*args, script=None):
 
 def snapshot(folder):
     return sorted(str(p) for p in folder.rglob("*"))
+
+
+def is_shell_file(path, folder):
+    """A path PowerShell writes for itself into the home folder it is given:
+    .cache/powershell, .local/share/powershell, AppData/Local/Microsoft/PowerShell."""
+    parts = Path(path).relative_to(folder).parts
+    return any("powershell" in part.lower() or part == "Microsoft" for part in parts)
+
+
+def new_paths(folder, before):
+    """Paths under ``folder`` that are not in the snapshot ``before``, leaving out the
+    shell's own files and every new directory that exists only as their parent."""
+    new = [Path(p) for p in snapshot(folder) if p not in set(before)]
+    shell = {p for p in new if is_shell_file(p, folder)}
+    holders = {a for p in shell for a in p.parents if a in new}
+
+    def holds_only_shell_files(d):
+        return all(q in shell or q in holders for q in new if d in q.parents)
+
+    left_out = shell | {d for d in holders if holds_only_shell_files(d)}
+    return [str(p) for p in new if p not in left_out]
 
 
 def tool_dir(tmp_path, *names):
@@ -353,7 +376,36 @@ def test_ps1_dry_run_creates_nothing(tmp_path):
     before = snapshot(tmp_path)
     proc = run_rc(ps("-DryRun", "-WithAsr", "-Agents", "claude,codex,agents"), env)
     assert proc.returncode == 0, proc.stderr
-    assert snapshot(tmp_path) == before
+    assert new_paths(tmp_path, before) == []
+
+
+def test_new_paths_leaves_out_only_the_shell_files(tmp_path):
+    """The dry-run check ignores PowerShell's start-up files and nothing else."""
+    (tmp_path / "AppData" / "Local").mkdir(parents=True)
+    before = snapshot(tmp_path)
+    shell_files = [
+        tmp_path / ".cache" / "powershell" / "StartupProfileData-NonInteractive",
+        tmp_path / ".local" / "share" / "powershell" / "Modules",
+        tmp_path / "AppData" / "Local" / "Microsoft" / "PowerShell" / "StartupProfileData-NonInteractive",
+    ]
+    for f in shell_files:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("", encoding="utf-8", newline="\n")
+    assert new_paths(tmp_path, before) == []
+    # A file of the installer's own is still caught, with the new folders that hold it,
+    # even inside a folder the shell also wrote to.
+    own = tmp_path / ".local" / "share" / "tutor-any-lecture" / "cli-path"
+    own.parent.mkdir(parents=True)
+    own.write_text("x", encoding="utf-8", newline="\n")
+    empty = tmp_path / ".claude"
+    empty.mkdir()
+    assert new_paths(tmp_path, before) == [
+        str(empty),
+        str(tmp_path / ".local"),
+        str(tmp_path / ".local" / "share"),
+        str(own.parent),
+        str(own),
+    ]
 
 
 @needs_ps

@@ -86,18 +86,33 @@ def _new_run_folder() -> tuple[Path, Path | None]:
     gets a fresh private parent of its own and sweeps nothing.
     """
     base = Path(tempfile.gettempdir())
+    parent = None
     try:
         parent = _shared_parent(base)
         if parent is not None:
             _sweep_stale(parent)
             return Path(tempfile.mkdtemp(prefix="run-", dir=parent)), None
     except OSError:
-        pass  # fall back to a fresh parent
+        # Fall back to a fresh parent. A trusted parent holding nothing goes first, so a
+        # failed run leaves no empty folder behind.
+        if parent is not None:
+            _remove_if_empty(parent)
+    own = None
     try:
         own = Path(tempfile.mkdtemp(prefix=f"{TEMP_PARENT}-", dir=base))
         return Path(tempfile.mkdtemp(prefix="run-", dir=own)), own
     except OSError as e:
+        if own is not None:
+            _remove_if_empty(own)
         raise AcquireError(f"could not create a temporary folder in {base}: {e}") from e
+
+
+def _remove_if_empty(folder: Path) -> None:
+    """Remove ``folder`` if it is empty; otherwise, or on any error, leave it."""
+    try:
+        folder.rmdir()  # rmdir removes only an empty folder
+    except OSError:
+        pass
 
 
 @contextmanager

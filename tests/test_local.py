@@ -430,24 +430,50 @@ def test_untrusted_temp_parent_is_not_used(monkeypatch, tmp_path, kind):
     assert [p.name for p in base.iterdir()] == [expected.name]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX folder creation")
 def test_no_temp_folder_is_a_clean_error(monkeypatch, tmp_path):
+    src = make_tone(tmp_path / "课程 资料")
+    unit = tmp_path / "课程 资料" / "第1周"
+    # The system temp folder is a file: no folder can be created in it, on any system,
+    # whichever call a Python version makes first.
+    base = tmp_path / "tmp"
+    base.write_bytes(b"not a folder")
+    monkeypatch.setattr(tempfile, "tempdir", str(base))
+    fake = install_fake_asr(monkeypatch)
+    with pytest.raises(AcquireError) as exc:
+        acquire_local(src, unit, Profile(), False)
+    assert str(exc.value).startswith("could not create a temporary folder")
+    assert str(exc.value).startswith(f"could not create a temporary folder in {base}: ")
+    assert not fake.calls and not unit.exists()
+    assert base.read_bytes() == b"not a folder"
+
+
+@pytest.mark.parametrize("fresh_parent", [False, True], ids=["shared-parent", "fresh-parent"])
+def test_no_run_folder_leaves_no_parent(monkeypatch, tmp_path, fresh_parent):
+    """A parent folder can be made but no run folder inside it: the parent goes too.
+
+    The shared parent is always made; with ``fresh_parent`` the fallback's own parent is too.
+    """
     src = make_tone(tmp_path / "课程 资料")
     unit = tmp_path / "课程 资料" / "第1周"
     base = tmp_path / "tmp"
     base.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(base))
     fake = install_fake_asr(monkeypatch)
+    real_mkdtemp = tempfile.mkdtemp
+    made: list[Path] = []
 
-    def refuse(*args, **kwargs):
+    def mkdtemp(*args, **kwargs):
+        if fresh_parent and kwargs.get("prefix") != "run-":
+            made.append(Path(real_mkdtemp(*args, **kwargs)))
+            return str(made[-1])
         raise PermissionError(13, "Permission denied")
 
     with monkeypatch.context() as m:
-        m.setattr(os, "mkdir", refuse)   # Path.mkdir and tempfile.mkdtemp both create through it
+        m.setattr(tempfile, "mkdtemp", mkdtemp)
         with pytest.raises(AcquireError) as exc:
             acquire_local(src, unit, Profile(), False)
-    assert str(exc.value).startswith("could not create a temporary folder")
     assert str(exc.value).startswith(f"could not create a temporary folder in {base}: ")
+    assert len(made) == (1 if fresh_parent else 0)
     assert not fake.calls and list(base.iterdir()) == []
 
 

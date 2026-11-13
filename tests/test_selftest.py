@@ -133,24 +133,16 @@ def test_selftest_removes_its_folder_after_a_failure(monkeypatch):
 
 def test_selftest_ignores_cleanup_errors(monkeypatch):
     """The temporary folder cannot be removed: run_selftest still returns its result."""
-    real_unlink = os.unlink
-    refused: list[str] = []
+    refused: list[Path] = []
 
-    def unlink(path, *args, **kwargs):
-        # verify.json, the last file the run writes, can never be removed.
-        if os.path.basename(os.fspath(path)) == "verify.json":
-            refused.append(os.fspath(path))
-            raise PermissionError(13, "Permission denied", os.fspath(path))
-        return real_unlink(path, *args, **kwargs)
+    def rmtree(path, *args, **kwargs):
+        refused.append(Path(path))
+        raise PermissionError(13, "Permission denied", os.fspath(path))
 
-    monkeypatch.setattr(os, "unlink", unlink)
-    try:
-        result = run_selftest()
-    finally:
-        monkeypatch.undo()
-    # The cleanup really failed: the file is still on disk, in the system temp folder.
-    leftovers = [Path(p) for p in refused if os.path.isabs(p)]
-    assert leftovers and leftovers[0].exists()
-    shutil.rmtree(leftovers[0].parent.parent)
+    monkeypatch.setattr("tutor_any_lecture.selftest.rmtree", rmtree)
+    result = run_selftest()
+    # The cleanup was attempted, once, on the folder the run used, and it failed.
+    assert len(refused) == 1 and (refused[0] / "unit" / "verify.json").is_file()
+    shutil.rmtree(refused[0])
     assert result["ok"] is True
     assert [s["name"] for s in result["steps"]] == STEP_NAMES
