@@ -22,21 +22,22 @@ A healthy track is used at once. Rolling repeats in automatic captions are remov
 
 ## Read-only steps
 
-1. If the learner has the slides, run `tutor-any-lecture slides --pdf F --unit DIR` first (the ASR prompt, if ASR runs, uses its terms).
-2. Run `tutor-any-lecture acquire url --url U --unit DIR`.
-3. Outcome, one JSON object on stdout:
-   - `{"status": "ok", "health": {…}}`, exit 0: `sources/transcript.json` and `sources/source.json` are written, with `"kind": "url"`, the `url`, and `"acquisition"` "cc" (manual captions), "auto" (automatic captions) or "asr";
-   - `{"status": "unhealthy", "health": {…}}`, exit 1: the kept caption track, or the ASR transcript, is unhealthy; the files are written. Show the health numbers (`coverage`, `repetition`, `spots_ok`, `overrun`, `loop`) and tell the learner before planning on that transcript;
+1. When the learner gave only the link, run `tutor-any-lecture acquire url --url U --info` to name the unit: it writes nothing and prints `{"status": "ok", "title", "duration", "uploader", "manual_captions", "automatic_captions"}` (`manual_captions` lists language codes; `automatic_captions` is true or false). Name the unit folder after `title`, made safe for a folder name (see SKILL.md, Acquire).
+2. If the learner has the slides, run `tutor-any-lecture slides --pdf F --unit DIR` first (the ASR prompt, if ASR runs, uses its terms).
+3. Run `tutor-any-lecture acquire url --url U --unit DIR`.
+4. Outcome, one JSON object on stdout:
+   - `{"status": "ok", "health": {…}, "title": …, "acquisition": …}`, exit 0: `sources/transcript.json` and `sources/source.json` are written, with `"kind": "url"`, the `url`, and `"acquisition"` "cc" (manual captions), "auto" (automatic captions) or "asr";
+   - `{"status": "unhealthy", "health": {…}, "title": …, "acquisition": …}`, exit 1: the kept caption track, or the ASR transcript, is unhealthy; the files are written. Show the health numbers (`coverage`, `repetition`, `spots_ok`, `overrun`, `loop`) and tell the learner before planning on that transcript;
    - `{"status": "error", "message": …}`, exit 1, nothing written: the video page could not be read (private, removed, region- or login-locked), the URL is a playlist, the audio could not be decoded, or the ASR backend failed. Show `message` to the learner;
    - `{"status": "needs_user_file", "message": …}`, exit 3: no caption track could be read, and audio may not or cannot be downloaded; on a capture platform the message says its recordings are not downloaded;
    - other exit-3 cases, one line on stderr and no JSON: the transcript already exists (rerun with `--force` to replace it); speech recognition is needed and not installed (with the learner's agreement, run the installer again with `--with-asr`, Windows `-WithAsr`; see SKILL.md, Step 0); it ran out of time budget (rerun with a larger `--budget-minutes`); or `public_video_audio` is on without a recorded consent (the notice is printed on stderr; see below).
-4. On `needs_user_file`, offer the learner the three ways forward the message names:
+5. On `needs_user_file`, offer the learner the three ways forward the message names:
    - provide the video or audio file: use [local](local.md);
    - provide a transcript or caption file: use [import](import.md);
    - enable `public_video_audio` in the profile: show the consent notice through `tutor-any-lecture profile set public_video_audio on` (see [profile](../profile.md)); only after the learner agrees, rerun it with `--i-understand`, then rerun `acquire url`. Never turn it on for them.
-5. With a transcript, run `tutor-any-lecture slides suspects --unit DIR`.
+6. With a transcript, run `tutor-any-lecture slides suspects --unit DIR`.
 
-Because source.json has `"kind": "url"` and the `url`, every timestamp in explanation.md links to the video at that time (see [writing](../writing.md), Citations).
+Because source.json has `"kind": "url"` and the `url`, every timestamp in explanation.md links to the video at that time: write plain `(mm:ss)` citations and run `tutor-any-lecture cite link --unit DIR` before the gate (see [writing](../writing.md), Citations).
 
 ## Downloads offered?
 
@@ -53,7 +54,7 @@ Caption files are always fetched; they are text. Audio is downloaded only then, 
 - An automatic track in another language may be a machine translation; it is never picked when an original exists. When the only tracks are translations, the run behaves as if there were no captions.
 - Automatic captions have no punctuation and mis-hear names: slides and `slides suspects` matter more here.
 - A video that needs a login, age check or membership cannot be read. Do not offer cookies or a login; ask the learner for a file instead.
-- Time links use `&t=<seconds>s`, or `?t=<seconds>s` when the URL has no query. For a platform without a time parameter, cite plain `(mm:ss)`.
+- Time links use `&t=<seconds>s`, or `?t=<seconds>s` when the URL has no query; `cite link` writes them. For a platform without a time parameter, cite plain `(mm:ss)` and do not run `cite link`.
 
 ## Verified by (name/date) or "experimental"
 

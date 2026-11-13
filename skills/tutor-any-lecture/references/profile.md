@@ -9,7 +9,7 @@ The same folder holds `cli-path`. A missing or empty file means every default. T
 - `tutor-any-lecture profile show` prints the effective profile as one JSON line. Its `workspace` is absolute, with `~` expanded; use that path for the unit folders. profile.yaml keeps what the learner wrote.
 - `tutor-any-lecture profile set KEY VALUE` changes one key and prints the new profile the same way. Every check runs before anything is written; a failed check is a `ProfileError`: one line on stderr naming the key, exit 1, nothing written. It rejects:
   - an unknown key;
-  - for `goal`, `terms`, `level`, `output_target`, `downloads`, `public_video_audio` and `naming`, a value outside the set in the table below;
+  - for `goal`, `quote_density`, `terms`, `level`, `output_target`, `downloads`, `public_video_audio` and `naming`, a value outside the set in the table below;
   - for `outputs`, a value that is not a YAML list, a member other than explanation, pretest, quiz, cards, map, or a list without explanation;
   - for `platforms`, a value that is not a YAML mapping, a key other than `moodle` and `panopto`, or a value that is not text;
   - `public_video_audio_consent`, which only the consent gate below writes.
@@ -30,6 +30,7 @@ In file order, with defaults:
 | `terms` | `bilingual` | bilingual, note, original | how technical terms are written (see [writing](writing.md)) |
 | `level` | `auto` | auto, beginner, intermediate, advanced | how much background the note explains; auto means judged from the conversation and, later, from the pretest scores |
 | `goal` | `deep` | deep, exam, quick | length, coverage and quiz size (table below) |
+| `quote_density` | `standard` | light, standard, dense | how densely a Chinese, Japanese or Korean note quotes a lecture in another script: the quote-ratio window 0.15–0.6, 0.4–1.2 or 1.0–2.0 (see [writing](writing.md)); written into plan.json |
 | `outputs` | `[explanation, pretest, quiz, cards, map]` | a list that holds explanation | which outputs a unit gets |
 | `output_target` | `markdown` | markdown, obsidian, notion | where the files go ([markdown](output-targets/markdown.md), [obsidian](output-targets/obsidian.md)); notion is delivered as Markdown for import |
 | `workspace` | `~/TutorAnyLecture` | a folder | holds `courses/<course>/<unit>/` and `progress/` |
@@ -58,7 +59,7 @@ plan.json never holds "auto". Resolve each value when you write it:
 - `note_language`: the profile value, or the language of the conversation when the profile says auto;
 - `lecture_language`: the profile value, or, when auto, source.json's `lecture_language`, or the language you read in the transcript or slides;
 - both as lowercase primary subtags ("en", "zh", "ja");
-- `goal` and `outputs` from the profile; `output_target` from the profile, with notion written as markdown;
+- `goal`, `outputs` and `quote_density` from the profile; `output_target` from the profile, with notion written as markdown;
 - `duration_s` from source.json's `duration` (null when unknown);
 - `course` and `unit`: the unit's two folder names; `tracked`: 5 concept ids, or all when there are fewer than 5.
 

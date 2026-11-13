@@ -228,3 +228,36 @@ def test_teaching_points_to_third_party_notices():
     between = t[t.index(CARD_NOTICE) + len(CARD_NOTICE) : t.index(NOTICES_POINTER)]
     assert between.strip() == ""
     assert Path("THIRD_PARTY_NOTICES.md").is_file()
+
+
+# ---- task 29: what the first real lecture showed ----
+
+DELIVER_SENTENCE = re.compile(r"\bdeliver (?:the|its) files\b", re.IGNORECASE)
+
+
+def test_pretest_comes_before_delivery():
+    text = read(SKILL)
+    # The pretest step: the command that logs a pretest answer, and the H2 that holds it.
+    step = text.index("--phase pre --score")
+    heading = text.rindex("\n## ", 0, step) + 1
+    title = text[heading:text.index("\n", heading)].lower()
+    deliver = DELIVER_SENTENCE.search(text)
+    assert deliver is not None
+    # The heading and the pretest step itself come before the first sentence that delivers the files,
+    # and the heading names the pretest before any delivery.
+    assert heading < step < deliver.start(), (title, text[deliver.start():deliver.start() + 60])
+    assert "pretest" in title
+    if "deliver" in title:
+        assert title.index("pretest") < title.index("deliver")
+
+
+def test_documents_name_the_new_flags_and_commands():
+    skill, teaching = read(SKILL), read(TEACHING)
+    writing = read(SKILL.parent / "references" / "writing.md")
+    assert "acquire url --url U --info" in skill
+    assert "tutor-any-lecture cite link --unit DIR" in skill and "cite link" in writing
+    assert "--date" in skill and "--date" in teaching
+    assert "quote_density" in skill and "quote_density" in teaching
+    assert "quote_density" in read(SKILL.parent / "references" / "profile.md")
+    assert "overview-<view>.mmd" in read(SKILL.parent / "references" / "output-targets" / "markdown.md")
+    assert "overview-<view>.mmd" in teaching

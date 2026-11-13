@@ -20,7 +20,8 @@ Every unit lives at `<workspace>/courses/<course>/<unit>/` with fixed file names
 | `cards.json` | you; `cards add-misses` appends | the Anki cards |
 | `cards.tsv` | `cards export`, `cards add-misses` | the Anki import file |
 | `map.json` | you | the concept map |
-| `overview.mmd` | `map mermaid` | the map as a Mermaid flowchart |
+| `overview-<view>.mmd` | `map mermaid` | one Mermaid flowchart per view of the map, when map.json has views |
+| `overview.mmd` | `map mermaid` | the whole map as a Mermaid flowchart, when map.json has no views (or the one view asked for with `--view`) |
 | `verify.json` | `verify` | the gate's result |
 
 Progress is per course, outside the unit folders:
@@ -36,6 +37,6 @@ Progress is per course, outside the unit folders:
 
 ## Delivering
 
-After verify passes, tell the learner where the unit folder is and what to open: `explanation.md` to read, `cards.tsv` to import into Anki (File, Import), `overview.mmd` in any Mermaid viewer.
+After verify passes and the pretest is done (see SKILL.md), tell the learner where the unit folder is and what to open: `explanation.md` to read, `cards.tsv` to import into Anki (File, Import), and the map in any Mermaid viewer: each `overview-<view>.mmd` when the map has views, otherwise `overview.mmd`.
 
 **Notion** (`output_target: notion`): plan.json says markdown, and the files are the same. The learner imports `explanation.md` with Notion's Markdown import; alerts arrive as quotes and `<details>` blocks may need re-folding by hand.

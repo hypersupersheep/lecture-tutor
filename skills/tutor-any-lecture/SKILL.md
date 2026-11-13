@@ -31,6 +31,7 @@ Infer what the user wants (which lecture, which outputs, how deep) and the setti
 ## Acquire
 
 1. Pick the unit folder first: `<workspace>/courses/<course>/<unit>/`, and remember both folder names. They become `course` and `unit` in plan.json, in `progress/<course>.jsonl` and in the card GUIDs. Take them from the user's wording, following the naming rule in [teaching](references/teaching.md) (write `CS 101 - Intro`, not `CS 101: Intro`); reuse them unchanged for later units of the same course.
+   - When the learner gives only a link, run `tutor-any-lecture acquire url --url U --info` first (it writes nothing) and name the unit after its `title`, made safe for a folder name (`Lecture 3: Graphs/BFS` becomes `Lecture 3 - Graphs - BFS`). Ask for the course only when nothing (the title, the uploader, the conversation) suggests one.
 2. For a folder of materials, run `tutor-any-lecture acquire route --folder <materials> --unit <unit folder>`. It only plans. Then:
    - a question about `unsafe-name`: ask the learner to rename the files it lists, then run the route again;
    - any other question: ask the learner its `text` and have them pick one of its `candidates`; for the pick `candidates[i]`, run that question's `argv[i]` as well;
@@ -54,7 +55,7 @@ Read the transcript, slides, chapters and suspects, then write plan.json in the 
 - `note_language`: the profile value, or the language of the conversation when the profile says auto;
 - `lecture_language`: the profile value, or, when auto, source.json's `lecture_language`, or the language you read in the transcript or slides;
 - both as lowercase primary subtags ("en", "zh", "ja"), never "auto";
-- `goal` and `outputs` from the profile; `output_target` from the profile, with notion written as markdown;
+- `goal`, `outputs` and `quote_density` from the profile; `output_target` from the profile, with notion written as markdown;
 - `duration_s` from source.json's `duration` (null when unknown);
 - `course` and `unit`: the two folder names from Acquire; `tracked`: 5 concept ids, or all when there are fewer than 5.
 
@@ -63,7 +64,7 @@ Read the transcript, slides, chapters and suspects, then write plan.json in the 
 Follow [writing](references/writing.md) (the note contract) and [teaching](references/teaching.md) (items, cards, map; items.json layout). Order of work:
 1. write items.json, then run `tutor-any-lecture items assign --unit DIR`;
 2. write the pretest section of explanation.md from `tutor-any-lecture items next --unit DIR --phase pre`;
-3. write the rest of the note;
+3. write the rest of the note, with plain time citations such as `(13:42)`; when the unit came from a link, run `tutor-any-lecture cite link --unit DIR` before the gate: it turns them into links to the video (it can be run again);
 4. write cards.json and map.json for the outputs listed in plan.json.
 
 For each output plan.json leaves out, skip its artefact and its step: no "cards": cards.json, `cards export` and `cards add-misses`; no "map": map.json and `map mermaid`; no "pretest": the pretest section and the pretest in chat (with "quiz" listed, the gate then warns `pretest_complete`); no "quiz": the `tal:check` sections and every quiz in chat (pretest, post quiz, reviews, practice), so nothing is logged for that unit; neither "pretest" nor "quiz": items.json and `items assign` too. explanation.md is always written: the gate reads it.
@@ -72,11 +73,13 @@ A command that finds plan.json, items.json, assignment.json, cards.json or map.j
 
 ## Gate
 
-Run `tutor-any-lecture cards export --unit DIR` when "cards" is in plan.outputs and `tutor-any-lecture map mermaid --unit DIR` when "map" is; then `tutor-any-lecture verify --unit DIR`. Fix and rerun until overall is PASS (exit 0). Report the `report` line exactly as printed; never claim a visual review that did not happen. Exit codes and check names: [gate](references/gate.md).
+Run `tutor-any-lecture cards export --unit DIR` when "cards" is in plan.outputs and `tutor-any-lecture map mermaid --unit DIR` when "map" is; then `tutor-any-lecture verify --unit DIR`. Fix and rerun until overall is PASS (exit 0). Report the `report` line exactly as printed; never claim a visual review that did not happen. The `measures:` line shows how close the note is to each limit. Exit codes and check names: [gate](references/gate.md).
 
-## Deliver and pretest
+## Pretest, then deliver
 
-Deliver the files; where they go per `output_target` is in [markdown](references/output-targets/markdown.md) and [obsidian](references/output-targets/obsidian.md). Then, when "quiz" and "pretest" are in plan.outputs, before the learner reads the note, run the pretest in chat with the `items` of `tutor-any-lecture items next --unit DIR --phase pre`, one at a time: ask how sure the learner is before you say whether the answer was right; then grade; then log both with `tutor-any-lecture progress log --unit DIR --item ID --phase pre --score S --confidence K`. Say that a low pretest score is normal. With "quiz" listed, then ask the learner to read the note and to tell you when they have.
+After the gate passes, when "quiz" and "pretest" are in plan.outputs, run the pretest in chat before the learner sees the note: the `items` of `tutor-any-lecture items next --unit DIR --phase pre`, one at a time. Ask how sure the learner is before you say whether the answer was right; then grade; then log both with `tutor-any-lecture progress log --unit DIR --item ID --phase pre --score S --confidence K`. Say that a low pretest score is normal.
+
+Only then deliver the files: explanation.md, cards.tsv and the map files (`overview-<view>.mmd` for each view, or `overview.mmd`); where they go per `output_target` is in [markdown](references/output-targets/markdown.md) and [obsidian](references/output-targets/obsidian.md). With "quiz" listed, ask the learner to read the note and to tell you when they have.
 
 ## Post quiz
 
@@ -84,7 +87,7 @@ When the learner says they have read the note (only with "quiz" in plan.outputs)
 1. run `tutor-any-lecture items next --unit DIR --phase post` and ask its `items` one at a time: confidence first, then grade, then log each with `tutor-any-lecture progress log --unit DIR --item ID --phase post --score S --confidence K`;
 2. run `tutor-any-lecture cards add-misses --unit DIR` (when "cards" is in plan.outputs).
 
-Reviews are counted from the day of the first post attempt. Until a `post` attempt exists, nothing else is ever due.
+Reviews are counted from the day of the first post attempt. Until a `post` attempt exists, nothing else is ever due. For an answer given on another day, pass that day to `progress log` as `--date YYYY-MM-DD`; `progress due --date YYYY-MM-DD` shows what is due on a given day.
 
 ## Quiz me and reviews
 
