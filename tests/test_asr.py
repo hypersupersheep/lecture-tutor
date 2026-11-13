@@ -65,6 +65,11 @@ def _logging_backend(audio, model, log, fail_on=None, sleep_on=None, **kwargs):
     return Transcript([Segment(0.0, 1.0, f"from {device}")], None)
 
 
+def _env_backend(audio, model, **kwargs):
+    names = ("HF_HUB_OFFLINE", "HF_HUB_DISABLE_TELEMETRY")
+    return Transcript([Segment(0.0, 1.0, json.dumps({n: os.environ.get(n) for n in names}))], None)
+
+
 def _native_noise(audio, model, **kwargs):
     os.write(1, b"native noise\n")   # what native code does: bypasses sys.stdout
     return Transcript([Segment(0.0, 1.0, "x")], None)
@@ -89,6 +94,7 @@ def run_with_fake_backend(monkeypatch, name="fake"):
     monkeypatch.setitem(asr.BACKENDS, name, _echo_backend)
     # A real backend name is checked for its package; the fake stands in for it.
     monkeypatch.setattr(asr, "_installed", lambda module: True)
+    monkeypatch.setattr(asr, "model_cached", lambda backend, model: False)
     t = transcribe(Path("unused.wav"), None, PROMPT, budget_minutes=1, backend=name, model="x")
     return json.loads(t.segments[0].text)
 
@@ -99,6 +105,7 @@ def install_logging_backend(monkeypatch, tmp_path, name, cuda, **options):
     monkeypatch.setitem(asr.BACKENDS, name, functools.partial(_logging_backend, log=str(log), **options))
     monkeypatch.setattr(asr, "_installed", lambda module: True)
     monkeypatch.setattr(asr, "_cuda_devices", lambda: 1 if cuda else 0)
+    monkeypatch.setattr(asr, "model_cached", lambda backend, model: False)
 
     def calls():
         if not log.exists():
@@ -379,3 +386,31 @@ def test_budget_covers_both_attempts(monkeypatch, tmp_path):
     with pytest.raises(BudgetExceeded, match="1 minutes"):
         transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
     assert time.monotonic() - started < 5      # the CPU attempt got the 0.5 s left, not a new minute
+
+
+def test_cached_model_loads_offline(monkeypatch):
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setitem(asr.BACKENDS, "fake", _env_backend)
+    lookups = []
+    for cached, offline in ((True, "1"), (False, None)):
+        monkeypatch.setattr(asr, "model_cached", lambda backend, model: lookups.append((backend, model)) or cached)
+        t = transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake", model="m")
+        assert json.loads(t.segments[0].text) == {"HF_HUB_OFFLINE": offline, "HF_HUB_DISABLE_TELEMETRY": "1"}
+    assert lookups == [("fake", "m"), ("fake", "m")]
+    assert "HF_HUB_OFFLINE" not in os.environ   # set in the child only
+
+
+def test_cached_lookup_error_means_online(monkeypatch):
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setitem(asr.BACKENDS, "fake", _env_backend)
+
+    def broken(backend, model):
+        raise OSError("missing DLL")
+
+    monkeypatch.setattr(asr, "model_cached", broken)
+    t = transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake", model="m")
+    assert json.loads(t.segments[0].text)["HF_HUB_OFFLINE"] is None
+
+
+def test_model_cached_unknown_backend_is_false():
+    assert asr.model_cached("no-such-backend", "small") is False

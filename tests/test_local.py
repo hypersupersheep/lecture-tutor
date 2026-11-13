@@ -1,6 +1,11 @@
 import json
+import os
 import shutil
+import signal
 import subprocess
+import sys
+import tempfile
+import time
 import types
 from pathlib import Path
 
@@ -263,3 +268,84 @@ def test_local_guard_fires_before_missing_input(monkeypatch, tmp_path):
         acquire_local(missing, unit, Profile(), False)
     with pytest.raises(FileExistsError):
         transcribe_audio(missing, unit, Profile(), False)
+
+
+# A child process: enters the temporary-folder helper under main's signal handling, then waits.
+SIGTERM_CHILD = """
+import sys, time
+from tutor_any_lecture import cli
+from tutor_any_lecture.acquire import local
+
+def hold(args):
+    with local.temp_dir() as tmp:
+        (tmp / "audio.wav").write_bytes(b"audio")
+        print(tmp, flush=True)
+        time.sleep(60)
+    return 0
+
+cli._cmd_profile_show = hold
+sys.exit(cli.main(["profile", "show"]))
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_sigterm_runs_cleanup(tmp_path):
+    env = {**os.environ, "TMPDIR": str(tmp_path)}
+    proc = subprocess.Popen([sys.executable, "-c", SIGTERM_CHILD], env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        line = proc.stdout.readline().decode("utf-8", errors="replace").strip()
+        assert line, proc.stderr.read().decode("utf-8", errors="replace")
+        folder = Path(line)
+        assert folder.parent.name == "tutor-any-lecture" and (folder / "audio.wav").exists()
+        proc.send_signal(signal.SIGTERM)
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 143, err.decode("utf-8", errors="replace")
+        assert not folder.exists()
+        assert folder.parent.is_dir()   # only the run's own folder goes
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+
+
+def test_stale_temp_folders_are_swept(monkeypatch, tmp_path):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    parent = tmp_path / "tutor-any-lecture"
+    old, recent = parent / "old-run", parent / "recent-run"
+    now = time.time()
+    for folder, age in ((old, 2 * 86400), (recent, 3600)):
+        folder.mkdir(parents=True)
+        (folder / "audio.wav").write_bytes(b"audio")
+        os.utime(folder, (now - age, now - age))
+    with local.temp_dir() as tmp:
+        assert tmp.parent == parent
+        assert not old.exists() and recent.exists()
+    assert not tmp.exists() and recent.exists()
+
+    # acquire_local makes its folder under the same parent, after the same sweep.
+    os.utime(recent, (now - 2 * 86400, now - 2 * 86400))
+    src = make_tone(tmp_path / "课程 资料")
+    fake = install_fake_asr(monkeypatch)
+    acquire_local(src, tmp_path / "课程 资料" / "第1周", Profile(), False)
+    assert fake.calls[0]["audio"].parent.parent == parent
+    assert not recent.exists()
+
+
+def test_sweep_errors_are_ignored(monkeypatch, tmp_path):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    old = tmp_path / "tutor-any-lecture" / "old-run"
+    old.mkdir(parents=True)
+    os.utime(old, (time.time() - 2 * 86400,) * 2)
+
+    real_rmtree = shutil.rmtree
+
+    def refuse_old(path, *args, **kwargs):
+        if Path(path).name == "old-run":
+            raise PermissionError("in use")
+        real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(local, "shutil", types.SimpleNamespace(rmtree=refuse_old))
+    with local.temp_dir() as tmp:
+        assert tmp.is_dir()
+    assert old.exists() and not tmp.exists()

@@ -9,8 +9,6 @@ network call, downloads anything, starts a browser or runs ffmpeg.
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import os
 import platform
 import posixpath
@@ -104,36 +102,16 @@ class _BrokenPackage(Exception):
         self.package = package
 
 
-# backend -> (distribution, module) that the cache lookup imports.
-_CACHE_MODULES = {
-    "mlx": ("huggingface-hub", "huggingface_hub"),
-    "faster": ("faster-whisper", "faster_whisper.utils"),
-}
-
-
 def _model_cached(backend: str, model: str) -> bool:
-    """Whether ``model`` is already in the local cache. Never downloads (local_files_only).
-
-    An unknown backend gives False, as does a package that is not installed. A package
-    that is installed but fails to import raises ``_BrokenPackage``.
+    """``asr.model_cached``, with a package that is installed but fails to import
+    reported as ``_BrokenPackage``. Never downloads.
     """
-    if backend not in _CACHE_MODULES:
-        return False
-    package, module = _CACHE_MODULES[backend]
+    from . import asr
+
     try:
-        lib = importlib.import_module(module)
-    except Exception as e:  # a broken native library may raise OSError, not ImportError
-        if importlib.util.find_spec(module.split(".")[0]) is None:
-            return False
-        raise _BrokenPackage(package, e) from e
-    try:
-        if backend == "mlx":
-            lib.snapshot_download(model, local_files_only=True)
-        else:
-            lib.download_model(model, local_files_only=True)
-    except Exception:
-        return False
-    return True
+        return asr.model_cached(backend, model)
+    except Exception as e:
+        raise _BrokenPackage(asr.CACHE_LOOKUP[backend][0], e) from e
 
 
 # --- the checks -------------------------------------------------------------------

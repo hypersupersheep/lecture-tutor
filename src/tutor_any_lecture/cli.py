@@ -13,13 +13,17 @@ import argparse
 import dataclasses
 import json
 import math
+import signal
 import sys
+import threading
 from datetime import date
 
 EXIT_OK = 0       # PASS or WARN, healthy transcript, doctor ready
 EXIT_FAIL = 1     # a check failed
 EXIT_USAGE = 2    # usage error, "not implemented" stub
 EXIT_ACTION = 3   # needs user action
+EXIT_INTERRUPTED = 130  # Ctrl+C (KeyboardInterrupt)
+EXIT_STOPPED = 143      # SIGTERM, SIGHUP or SIGBREAK: an agent's shell timeout, a closed terminal
 
 # Keyed by exception class name, so this module imports none of the modules defining them.
 EXIT_BY_ERROR: dict[str, int] = {
@@ -578,14 +582,59 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _stop(signum, frame) -> None:
+    """Signal handler: end the command through ``SystemExit``, so every ``finally`` runs."""
+    try:
+        signal.signal(signum, signal.SIG_IGN)  # a second signal must not cut the cleanup short
+    except (OSError, ValueError):
+        pass
+    raise SystemExit(EXIT_STOPPED)
+
+
+def _install_stop_handlers() -> dict:
+    """Route the stop signals to ``_stop``; returns the handlers they replaced.
+
+    Only in the main thread, the one place Python allows it. SIGHUP exists on POSIX,
+    SIGBREAK on Windows.
+    """
+    replaced: dict = {}
+    if threading.current_thread() is not threading.main_thread():
+        return replaced
+    for name in ("SIGTERM", "SIGHUP", "SIGBREAK"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            replaced[signum] = signal.signal(signum, _stop)
+        except (OSError, ValueError):
+            continue
+    return replaced
+
+
+def _restore_handlers(replaced: dict) -> None:
+    for signum, handler in replaced.items():
+        if handler is None:  # installed outside Python; it cannot be put back
+            continue
+        try:
+            signal.signal(signum, handler)
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     args = build_parser().parse_args(argv)
+    # A stopped command (SIGTERM from an agent's shell timeout) still removes its temp
+    # folder and ends a running ASR child: the handler raises SystemExit(143).
+    replaced = _install_stop_handlers()
     try:
         return args.func(args)
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        return EXIT_INTERRUPTED
     except Exception as e:
         for cls in type(e).__mro__:
             code = EXIT_BY_ERROR.get(cls.__name__)
@@ -593,3 +642,5 @@ def main(argv: list[str] | None = None) -> int:
                 print(_one_line(e), file=sys.stderr)
                 return code
         raise
+    finally:
+        _restore_handlers(replaced)

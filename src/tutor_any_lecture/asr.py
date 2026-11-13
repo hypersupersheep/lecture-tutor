@@ -9,6 +9,7 @@ module level.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import multiprocessing
 import os
@@ -215,6 +216,48 @@ def resolve_backend(backend: str | None = None, model: str | None = None) -> tup
     return name, model
 
 
+# backend -> (distribution, module) whose lookup finds a model in the local cache.
+CACHE_LOOKUP: dict[str, tuple[str, str]] = {
+    "mlx": ("huggingface-hub", "huggingface_hub"),
+    "faster": ("faster-whisper", "faster_whisper.utils"),
+}
+
+
+def model_cached(backend: str, model: str) -> bool:
+    """Whether ``model`` is already in the local cache. Never downloads (local_files_only).
+
+    An unknown backend gives False, as does a lookup package that is not installed. A
+    package that is installed but fails to import re-raises its error.
+    """
+    if backend not in CACHE_LOOKUP:
+        return False
+    module = CACHE_LOOKUP[backend][1]
+    try:
+        lib = importlib.import_module(module)
+    except Exception:  # a broken native library may raise OSError, not ImportError
+        if importlib.util.find_spec(module.split(".")[0]) is None:
+            return False
+        raise
+    try:
+        if backend == "mlx":
+            lib.snapshot_download(model, local_files_only=True)
+        else:
+            lib.download_model(model, local_files_only=True)
+    except Exception:
+        return False
+    return True
+
+
+def _loads_offline(backend: str, model: str | None) -> bool:
+    """``model_cached`` for the child's HF_HUB_OFFLINE; any lookup error means "no"."""
+    if model is None:
+        return False
+    try:
+        return model_cached(backend, model)
+    except Exception:
+        return False
+
+
 def default_budget_minutes(duration_s: float | None) -> float:
     if duration_s is None:
         return 30.0
@@ -235,9 +278,13 @@ def _error_text(error: BaseException) -> str:
     return "\n".join([head, *frames])
 
 
-def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> None:
+def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn, offline: bool = False) -> None:
     """The spawn child: run one backend and send ``("ok", transcript)`` or ``("err", message)``."""
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    if offline:
+        # The model is in the local cache: load it with no network call. Set before the
+        # backend imports huggingface_hub, which reads it once, at import.
+        os.environ["HF_HUB_OFFLINE"] = "1"
     # The command's stdout carries one JSON object; whatever a backend prints goes to stderr.
     sys.stdout = sys.stderr
     try:
@@ -254,7 +301,13 @@ def _child(fn: Callable, audio: str, model: str | None, kwargs: dict, conn) -> N
 
 
 def _run_child(
-    fn: Callable, audio: Path, model: str | None, kwargs: dict, deadline: float, budget_minutes: float
+    fn: Callable,
+    audio: Path,
+    model: str | None,
+    kwargs: dict,
+    offline: bool,
+    deadline: float,
+    budget_minutes: float,
 ) -> tuple[str, object]:
     """Run ``fn`` once in a spawn child, until ``deadline`` (a ``time.monotonic`` reading).
 
@@ -267,7 +320,7 @@ def _run_child(
         raise BudgetExceeded(_over_budget(budget_minutes))
     ctx = multiprocessing.get_context("spawn")
     reader, writer = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=_child, args=(fn, str(audio), model, kwargs, writer))
+    proc = ctx.Process(target=_child, args=(fn, str(audio), model, kwargs, writer, offline))
     started = False
     try:
         proc.start()  # inside the try: a failed start still closes both pipe ends
@@ -329,7 +382,7 @@ def transcribe(
         kwargs.update(device=device, compute_type=_FASTER_COMPUTE[device])
 
     deadline = time.monotonic() + budget_minutes * 60  # one budget for every attempt
-    status, payload = _run_child(fn, audio, model, kwargs, deadline, budget_minutes)
+    status, payload = _run_child(fn, audio, model, kwargs, _loads_offline(name, model), deadline, budget_minutes)
     if status != "ok" and name == "faster" and device == "cuda":
         first = str(payload).splitlines()[0] if str(payload) else ""
         print(f"warning: GPU transcription failed ({first}); retrying on the CPU", file=sys.stderr)
@@ -338,7 +391,8 @@ def transcribe(
         if model == _FASTER_MODELS["cuda"]:
             model = _FASTER_MODELS["cpu"]
         kwargs.update(device=device, compute_type=_FASTER_COMPUTE[device])
-        status, payload = _run_child(fn, audio, model, kwargs, deadline, budget_minutes)
+        offline = _loads_offline(name, model)
+        status, payload = _run_child(fn, audio, model, kwargs, offline, deadline, budget_minutes)
 
     if status == "died":
         raise AcquireError(payload)

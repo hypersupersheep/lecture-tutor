@@ -1,6 +1,9 @@
 import argparse
 import json
 import re
+import signal
+import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -143,3 +146,51 @@ def test_asr_is_an_extra():
     assert all(any(d.startswith(b) for d in extra) for b in backends)
     assert "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'" in extra
     assert "faster-whisper>=1.1; sys_platform != 'darwin' or platform_machine != 'arm64'" in extra
+
+
+def test_keyboard_interrupt_is_exit_130(monkeypatch, tmp_path, capsys):
+    from tutor_any_lecture.acquire import local
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    folders = []
+
+    def interrupted(args):
+        with local.temp_dir() as tmp:
+            folders.append(tmp)
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_cmd_profile_show", interrupted)
+    assert main(["profile", "show"]) == 130
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "interrupted\n"
+    assert folders and not folders[0].exists()
+
+
+def test_sigterm_handler_is_exit_143(monkeypatch):
+    before = signal.getsignal(signal.SIGTERM)
+
+    def stopped(args):
+        handler = signal.getsignal(signal.SIGTERM)
+        assert handler is not before
+        handler(signal.SIGTERM, None)
+
+    monkeypatch.setattr(cli, "_cmd_profile_show", stopped)
+    with pytest.raises(SystemExit) as exc:
+        main(["profile", "show"])
+    assert exc.value.code == 143
+    assert signal.getsignal(signal.SIGTERM) is before   # main puts the old handler back
+
+
+def test_handlers_only_in_the_main_thread(monkeypatch):
+    before = signal.getsignal(signal.SIGTERM)
+    seen, codes = [], []
+
+    def record(args):
+        seen.append(signal.getsignal(signal.SIGTERM))
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_profile_show", record)
+    worker = threading.Thread(target=lambda: codes.append(main(["profile", "show"])))
+    worker.start()
+    worker.join()
+    assert codes == [0] and seen == [before]

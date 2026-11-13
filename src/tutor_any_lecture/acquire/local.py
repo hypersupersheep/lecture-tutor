@@ -7,6 +7,8 @@ import importlib.metadata
 import shutil
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from tutor_any_lecture import asr, slides
@@ -16,6 +18,48 @@ from ..profile import Profile
 from ..source import SourceInfo, sha256_file
 from ..transcript import EmptyTranscript, Health, health
 from ..unit import UnitPaths
+
+# Every temporary folder the tool makes sits under <system temp folder>/tutor-any-lecture/.
+TEMP_PARENT = "tutor-any-lecture"
+# A folder under the parent older than this was left by a run that was killed outright.
+STALE_SECONDS = 24 * 3600
+
+
+def _sweep_stale(parent: Path) -> None:
+    """Remove the folders under ``parent`` older than ``STALE_SECONDS``. Errors are ignored."""
+    try:
+        entries = list(parent.iterdir())
+    except OSError:
+        return
+    cutoff = time.time() - STALE_SECONDS
+    for entry in entries:
+        try:
+            info = entry.lstat()
+            if entry.is_symlink() or not entry.is_dir() or info.st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+        except OSError:
+            continue
+
+
+@contextmanager
+def temp_dir():
+    """A new folder under the tool's temp parent, removed when the block ends, however it ends.
+
+    Outside the unit and the user's folders. Stale folders of earlier runs are swept first.
+    ``main`` turns SIGTERM into ``SystemExit``, so a stopped command removes it too.
+    """
+    parent = Path(tempfile.gettempdir()) / TEMP_PARENT
+    parent.mkdir(parents=True, exist_ok=True)
+    _sweep_stale(parent)
+    tmp = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
+    try:
+        yield tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        if tmp.exists():
+            print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
+
 
 def _refuse_overwrite(unit: Path, force: bool) -> None:
     transcript = UnitPaths(unit).transcript
@@ -58,16 +102,11 @@ def acquire_local(
     _require_file(file)
     # Before the extraction, so a missing backend costs no audio work.
     backend, model = asr.resolve_backend()
-    # Outside the unit and the user's folder, and removed also when transcription fails.
-    tmp = Path(tempfile.mkdtemp(prefix="tutor-any-lecture-"))
-    try:
+    # Removed also when transcription fails or the command is stopped.
+    with temp_dir() as tmp:
         wav = tmp / "audio.wav"
         extract_audio(file, wav)
         return _transcribe_into_unit(wav, file, unit, profile, budget_minutes, backend, model)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-        if tmp.exists():
-            print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
 
 
 def _transcribe_into_unit(

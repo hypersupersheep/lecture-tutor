@@ -9,6 +9,7 @@ import pytest
 import yt_dlp
 
 from tutor_any_lecture import asr
+from tutor_any_lecture.acquire import local as local_module
 from tutor_any_lecture.acquire import url as url_module
 from tutor_any_lecture.acquire.url import NeedsUserFile, _unroll_auto, acquire_url, pick_caption
 from tutor_any_lecture.cli import main
@@ -444,8 +445,8 @@ def test_missing_vtt_file_falls_back_to_auto(monkeypatch, tmp_path, profile_off)
 
 
 def test_undeletable_temp_warns_on_stderr(monkeypatch, fake_ydl, tmp_path, profile_off, capsys):
-    # rmtree does nothing, but only where url.py calls it.
-    monkeypatch.setattr(url_module, "shutil", types.SimpleNamespace(rmtree=lambda *a, **k: None))
+    # rmtree does nothing, but only where the shared temp-folder helper (acquire/local.py) calls it.
+    monkeypatch.setattr(local_module, "shutil", types.SimpleNamespace(rmtree=lambda *a, **k: None))
     try:
         assert acquire_url("https://y/x", tmp_path / "unit", profile_off, False).ok
         captured = capsys.readouterr()

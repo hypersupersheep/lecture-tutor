@@ -8,10 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import shutil
-import sys
-import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -33,6 +29,7 @@ from ..transcript import (
     primary_subtag,
 )
 from ..unit import UnitPaths
+from .local import temp_dir
 
 # Every options dict starts from these, so yt-dlp writes nothing on stdout
 # (the CLI prints exactly one JSON object there) and never expands a playlist.
@@ -146,18 +143,6 @@ def _unroll_auto(segments: list[Segment]) -> list[Segment]:
 # --- yt-dlp calls ------------------------------------------------------------
 
 
-@contextmanager
-def _temp_dir():
-    # Outside the unit and the user's folders; removed also when the body raises.
-    tmp = Path(tempfile.mkdtemp(prefix="tutor-any-lecture-"))
-    try:
-        yield tmp
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-        if tmp.exists():
-            print(f"warning: could not delete the temporary folder {tmp}; delete it by hand", file=sys.stderr)
-
-
 def _reason(error: Exception) -> str:
     """yt-dlp's message on one line, without colour codes or a leading "ERROR: "."""
     text = " ".join(_ANSI.sub("", str(error)).split())
@@ -166,7 +151,7 @@ def _reason(error: Exception) -> str:
 
 def _try_caption(url: str, kind: str, lang: str, duration: float | None) -> tuple[list[Segment], Health] | None:
     """Download one caption track; return its segments and health, or ``None`` if it is unusable."""
-    with _temp_dir() as tmp:
+    with temp_dir() as tmp:
         opts = {
             **_BASE_OPTS,
             "skip_download": True,
@@ -198,7 +183,7 @@ def _asr_from_audio(url: str, unit: Path, profile: Profile, duration: float | No
     """Download the audio stream only, transcribe it, and delete it."""
     # Before the download: with no usable backend, BackendMissing is raised and nothing is fetched.
     backend, model = asr.resolve_backend()
-    with _temp_dir() as tmp:
+    with temp_dir() as tmp:
         dl = tmp / "dl"
         opts = {
             **_BASE_OPTS,
