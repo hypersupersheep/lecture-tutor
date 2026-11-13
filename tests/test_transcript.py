@@ -176,7 +176,8 @@ def test_stamped_last_segment_never_ends_before_start():
 
 def test_no_literal_bom_in_python_files():
     root = Path(__file__).resolve().parents[1]
-    files = sorted(f for folder in (root / "src", root / "tests") for f in folder.rglob("*.py"))
+    folders = (root / "src", root / "tests", root / "tools")
+    files = sorted(f for folder in folders for f in folder.rglob("*.py"))
     assert files
     offenders = [str(f) for f in files if "\ufeff" in f.read_text(encoding="utf-8")]
     assert offenders == []
