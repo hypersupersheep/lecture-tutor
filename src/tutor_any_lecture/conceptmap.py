@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from .checks import CheckResult
-from .plan import read_json
+from .plan import PlanError, read_json, safe_name
 from .unit import UnitPaths
 
 NODE_TYPES = ("definition", "theorem", "method", "example", "pitfall")
@@ -220,13 +220,37 @@ def validate_unit(unit: Path) -> list[CheckResult]:
     return validate_map(load_map(UnitPaths(unit).map))
 
 
-def export_mermaid(unit: Path, view_id: str | None = None) -> Path:
-    """Write overview.mmd from map.json and return its path; writes nothing if the map fails."""
+def view_file(unit: Path, view_id: str) -> Path:
+    """``overview-<view id>.mmd`` in the unit; ValueError when the id cannot be part of a file name."""
+    try:
+        safe_name(view_id, "view")
+    except PlanError:
+        raise ValueError(
+            f"map.json: view {view_id!r} cannot name a file: "
+            "avoid / \\ : * ? \" < > | and leading or trailing spaces or dots"
+        ) from None
+    return UnitPaths(unit).root / f"overview-{view_id}.mmd"
+
+
+def export_mermaid(unit: Path, view_id: str | None = None) -> Path | list[Path]:
+    """Write the map as Mermaid; writes nothing if the map fails.
+
+    With ``view_id``, or for a map without views: overview.mmd (that view, or the whole
+    map), and its path is returned. A map with views and no ``view_id``: one file per
+    view, ``overview-<view id>.mmd``, in view order, and the list of their paths.
+    """
     paths = UnitPaths(unit)
     m = load_map(paths.map)
     results = validate_map(m)
     if any(r.status == "FAIL" for r in results):
         raise MapInvalid(results)
-    text = to_mermaid(m, view_id)
-    paths.mermaid.write_text(text, encoding="utf-8", newline="\n")
-    return paths.mermaid
+    views = m.get("views") or []
+    if view_id is not None or not views:
+        text = to_mermaid(m, view_id)
+        paths.mermaid.write_text(text, encoding="utf-8", newline="\n")
+        return paths.mermaid
+    # Every file name is checked before the first file is written.
+    targets = [(view["id"], view_file(unit, view["id"])) for view in views]
+    for vid, target in targets:
+        target.write_text(to_mermaid(m, vid), encoding="utf-8", newline="\n")
+    return [target for _, target in targets]

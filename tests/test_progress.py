@@ -198,10 +198,10 @@ def test_render_page_content(tmp_path):
     assert "····○·········◆···●··  u1" in lines
     by_concept = lines[lines.index("## By concept"):lines.index("## Due today")]
     assert [x for x in by_concept if x.startswith(("○", "●", "◆", "·"))] == [
-        "○···················◆  c1",
+        "○···················●◆  c1",
         "○·········◆·········●  c2",
-        "····················◆  c3",
-        "○·········◆··········  c4",
+        "····················○●◆  c3",
+        "○·········●◆··········  c4",
         "○·········◆·········●  c5",
     ]
     assert lines[lines.index("## Due today") + 2] == "None."
@@ -403,7 +403,7 @@ Across 1 units: pre 0.00 → post 1.00, normalized gain 1.00.
 
 Gain and retention compare only the concepts attempted in both phases, and the means beside them are over those concepts.
 
-Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7.
+Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7; marks of equal scores stand side by side.
 
 ```text
 ○···················●  u1
@@ -519,4 +519,42 @@ def test_page_means_agree_with_the_gain(tmp_path):
         "····················○  c1",
         "○·········●··········  c2",
         "··········◆·········●  c3",
+    ]
+
+
+# ---- the progress page after a live run (Task 29, L13) -------------------------
+
+
+def test_equal_scores_show_both_marks(tmp_path):
+    write_attempts(tmp_path, mk(unit="u1", pre=[1, 0, 0.5], post=[1, 0, 1], d7=[1, 0.5, 1]))
+    lines = render_progress("C", tmp_path, date(2026, 11, 27)).read_text(encoding="utf-8").splitlines()
+    by_concept = lines[lines.index("## By concept"):lines.index("## Due today")]
+    strips = [x for x in by_concept if x.startswith(("○", "●", "◆", "·"))]
+    assert strips == [
+        "····················○●◆  c1",
+        "○●·········◆··········  c2",
+        "··········○·········●◆  c3",
+    ]
+    assert all(mark in line for line in strips for mark in "○●◆")
+
+
+def test_confident_wrong_shows_the_prompt(tmp_path):
+    u = unit_dir(tmp_path)
+    ws = tmp_path / "ws"
+    items_path = u / "items.json"
+    items = json.loads(items_path.read_text(encoding="utf-8"))
+    prompt = "A loan charges half a percent a month;\n  what is its effective yearly rate, and why is it above six percent?"
+    items["tracked"]["c1"]["B"]["prompt"] = prompt
+    items_path.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    assert main(["progress", "log", "--unit", str(u), "--item", "c1-B", "--phase", "post", "--score", "0",
+                 "--confidence", "3", "--workspace", str(ws)]) == 0
+    (a,) = load_attempts("C", ws)
+    assert a.prompt == prompt
+    # an attempt logged before prompts were kept still renders, without one
+    log_attempt(attempt(item_id="p1", variant=None, phase="practice", score=0, confidence=3, unit="U1"), ws)
+    lines = render_progress("C", ws, date(2026, 11, 20)).read_text(encoding="utf-8").splitlines()
+    start = lines.index("## Confident but wrong") + 2
+    assert lines[start:start + 2] == [
+        '- U1: c1-B (c1) "A loan charges half a percent a month; what is its effective…", post, (slide 2, 01:00)',
+        "- U1: p1 (c1), practice, (01:00)",
     ]

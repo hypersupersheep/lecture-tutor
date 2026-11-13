@@ -25,13 +25,13 @@ def test_cli_help_lists_groups(capsys):
     with pytest.raises(SystemExit):
         main(["--help"])
     out = capsys.readouterr().out
-    assert all(g in out for g in ["doctor", "acquire", "verify", "progress", "cards", "items", "map", "selftest"])
+    assert all(g in out for g in ["doctor", "acquire", "verify", "progress", "cards", "items", "map", "selftest", "cite"])
 
 
-def test_parser_registers_eleven_groups():
+def test_parser_registers_twelve_groups():
     assert top_level_commands() == {
         "profile", "doctor", "acquire", "transcribe", "slides", "items",
-        "cards", "progress", "map", "verify", "selftest",
+        "cards", "cite", "progress", "map", "verify", "selftest",
     }
 
 
@@ -333,8 +333,13 @@ def setup_progress_render(tmp_path):
     return ["progress", "render", "--course", "C", "--workspace", str(ws)]
 
 
+def setup_cite_link(tmp_path):
+    return ["cite", "link", "--unit", str(ok_unit(tmp_path))]
+
+
 WRITERS = {
     "cards-export": setup_cards_export,
+    "cite-link": setup_cite_link,
     "cards-add-misses": setup_cards_add_misses,
     "map-mermaid": setup_map_mermaid,
     "items-assign": setup_items_assign,
@@ -385,3 +390,30 @@ def test_acquire_with_malformed_profile_is_error_json(tmp_cfg, tmp_path, monkeyp
     assert out["status"] == "error" and "profile.yaml" in out["message"]
     assert captured.err == ""
     assert not (tmp_path / "unit").exists()
+
+
+# ---- the tool writes the time links (Task 29, L10) -----------------------------
+
+
+def test_cli_cite_link(tmp_path, capsys):
+    from tutor_any_lecture.unit import UnitPaths
+
+    unit = ok_unit(tmp_path)
+    paths = UnitPaths(unit)
+    source = json.loads(paths.source.read_text(encoding="utf-8"))
+    source.update(kind="url", url="https://video.example.com/watch?v=x")
+    paths.source.write_text(json.dumps(source) + "\n", encoding="utf-8", newline="\n")
+    assert main(["cite", "link", "--unit", str(unit)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(paths.explanation), "linked": 3}
+    note = paths.explanation.read_text(encoding="utf-8")
+    assert "(slide 1, [0:42](https://video.example.com/watch?v=x&t=42s))" in note
+    assert "(slide 2, [2:40](https://video.example.com/watch?v=x&t=160s))" in note
+    assert main(["cite", "link", "--unit", str(unit)]) == 0
+    assert json.loads(capsys.readouterr().out)["linked"] == 0
+    assert main(["verify", "--unit", str(unit)]) == 0
+    # a unit without explanation.md is a missing file: exit 1, one line on stderr
+    paths.explanation.unlink()
+    capsys.readouterr()
+    assert main(["cite", "link", "--unit", str(unit)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.count("\n") == 1

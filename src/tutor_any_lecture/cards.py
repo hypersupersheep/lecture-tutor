@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -205,6 +206,25 @@ def _code_block(lines: list[str]) -> str:
     return "<pre><code>" + _escape("\n".join(lines).replace("\t", "    ")) + "</code></pre>"
 
 
+def _without_trailing_marks(text: str) -> str:
+    """``text`` in NFKC (full-width parentheses become ASCII ones), without trailing spaces and punctuation."""
+    text = unicodedata.normalize("NFKC", text)
+    end = len(text)
+    while end and (text[end - 1].isspace() or unicodedata.category(text[end - 1]).startswith("P")):
+        end -= 1
+    return text[:end]
+
+
+def ends_with_citation(back: str, citation: str) -> bool:
+    """True when ``back`` already ends with ``citation``, as a miss card's item answer often does.
+
+    Trailing spaces and punctuation are ignored on both sides, and full-width parentheses
+    count as ordinary ones: "…不止一个（4:14–4:37）。" ends with "(4:14–4:37)".
+    """
+    cite = _without_trailing_marks(citation)
+    return bool(cite) and _without_trailing_marks(back).endswith(cite)
+
+
 def export_tsv(unit: Path) -> Path:
     """Write cards.tsv (an Anki import file) from cards.json and plan.json; return its path."""
     paths = UnitPaths(unit)
@@ -216,7 +236,7 @@ def export_tsv(unit: Path) -> Path:
     for c in cards:
         back = _field(c.back)
         # A back that already ends with its citation (a miss card's item answer often does) gets no second one.
-        if not c.back.rstrip().endswith(c.citation.strip()):
+        if not ends_with_citation(c.back, c.citation):
             back += f"<br><small>{_field(c.citation)}</small>"
         row = (_field(c.front), back, tag(course, unit_name, c.concept), guid(course, unit_name, c.id))
         lines.append("\t".join(row))

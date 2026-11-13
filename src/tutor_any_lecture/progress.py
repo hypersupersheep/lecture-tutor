@@ -30,7 +30,10 @@ PAIRED_NOTE = (
     "Gain and retention compare only the concepts attempted in both phases, "
     "and the means beside them are over those concepts."
 )
-STRIP_MARKS = (("pre", "○"), ("post", "●"), ("d7", "◆"))  # later marks win a shared column
+STRIP_MARKS = (("pre", "○"), ("post", "●"), ("d7", "◆"))  # marks sharing a column stand side by side
+STRIP_LEGEND = "Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7; marks of equal scores stand side by side."
+# How much of an item's prompt the confident-but-wrong list shows.
+PROMPT_SHOWN = 60
 
 
 @dataclass
@@ -46,6 +49,8 @@ class Attempt:
     confidence: int
     citation: str
     exposure: str
+    # The item's prompt when it was asked; None in lines logged before prompts were kept.
+    prompt: str | None = None
 
 
 def _progress_dir(workspace: Path) -> Path:
@@ -132,6 +137,7 @@ def log_from_unit(
         confidence=confidence,
         citation=item.citation,
         exposure=exposure,
+        prompt=item.prompt,
     )
     log_attempt(a, workspace)
     return a
@@ -270,14 +276,29 @@ def _fmt(x: float | None) -> str:
 
 
 def _strip(pre: float | None, post: float | None, d7: float | None) -> str:
-    """A 21-cell 0-100 strip with ○ pre, ● post and ◆ d7; a later mark wins a shared cell."""
-    cells = ["·"] * STRIP_COLUMNS
+    """A 21-cell 0-100 strip with ○ pre, ● post and ◆ d7; marks in one cell stand side by side."""
+    cells = [""] * STRIP_COLUMNS
     values = {"pre": pre, "post": post, "d7": d7}
     for phase, mark in STRIP_MARKS:
         v = values[phase]
         if v is not None:
-            cells[min(STRIP_COLUMNS - 1, max(0, int(round(v * 20, 6) + 0.5)))] = mark
-    return "".join(cells)
+            cells[min(STRIP_COLUMNS - 1, max(0, int(round(v * 20, 6) + 0.5)))] += mark
+    return "".join(cell or "·" for cell in cells)
+
+
+def _prompt_start(prompt: str) -> str:
+    """The prompt on one line, cut at a word to at most PROMPT_SHOWN characters, with "…" when cut."""
+    text = " ".join(prompt.split())
+    if len(text) <= PROMPT_SHOWN:
+        return text
+    head = text[: PROMPT_SHOWN + 1]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > 0 else text[:PROMPT_SHOWN]).rstrip() + "…"
+
+
+def _wrong_line(a: Attempt) -> str:
+    prompt = f' "{_prompt_start(a.prompt)}"' if a.prompt else ""
+    return f"- {a.unit}: {a.item_id} ({a.concept}){prompt}, {a.phase}, {a.citation}"
 
 
 def _fence(lines: list[str]) -> str:
@@ -372,7 +393,7 @@ def render_progress(course: str, workspace: Path, today: date) -> Path:
             "## Units",
             "\n".join(table),
             PAIRED_NOTE,
-            "Each strip runs from 0 to 100 in 21 columns: ○ pre, ● post, ◆ day 7.",
+            STRIP_LEGEND,
             _fence(strips),
             "## By concept",
         ]
@@ -384,9 +405,7 @@ def render_progress(course: str, workspace: Path, today: date) -> Path:
         for e in due(attempts, today)
     ]
     blocks += ["## Due today", "\n".join(due_lines) or "None."]
-    wrong_lines = [
-        f"- {a.unit}: {a.item_id} ({a.concept}), {a.phase}, {a.citation}" for a in confident_but_wrong(attempts)
-    ]
+    wrong_lines = [_wrong_line(a) for a in confident_but_wrong(attempts)]
     blocks += ["## Confident but wrong", "\n".join(wrong_lines) or "None."]
 
     path = _course_file(workspace, course, ".md")

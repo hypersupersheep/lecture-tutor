@@ -322,3 +322,32 @@ def test_miss_card_citation_appears_once(tmp_path):
     rows = UnitPaths(u).cards_tsv.read_text(encoding="utf-8").splitlines()[6:]
     assert rows[2].split("\t")[1] == "Answer c1-A. (slide 1)"
     assert rows[0].split("\t")[1] == "A1.<br><small>(slide 1)</small>"
+
+
+# ---- miss cards from a live run (Task 29, L4) --------------------------------
+
+
+@pytest.mark.parametrize("back, citation", [
+    ("关系可以不止一个（4:14–4:37）。", "(4:14–4:37)"),
+    ("关系可以不止一个（4:14–4:37）", "(4:14–4:37)"),
+    ("A relation may hold several outputs (4:14–4:37).", "(4:14–4:37)"),
+    ("A relation may hold several outputs (4:14–4:37) . ", "(4:14–4:37)"),
+    ("It is θ (slide 3)!", "（slide 3）"),
+])
+def test_citation_is_not_repeated_after_full_width_parentheses(tmp_path, back, citation):
+    row = exported_row(tmp_path, back=back, citation=citation)
+    assert "<small>" not in row[1]
+
+
+def test_citation_is_added_when_the_back_ends_otherwise(tmp_path):
+    row = exported_row(tmp_path, back="See (4:14–4:37) for the definition.", citation="(4:14–4:37)")
+    assert row[1].endswith("<br><small>(4:14–4:37)</small>")
+    row = exported_row(tmp_path / "other", back="Several (4:14).", citation="(4:14–4:37)")
+    assert row[1].endswith("<br><small>(4:14–4:37)</small>")
+
+
+def test_back_length_rule_covers_miss_cards():
+    long_miss = card("Q?", back="x" * 351, id="c1-A|miss", kind="miss")
+    results = validate_cards([card("Q?"), long_miss], "deep", "en")
+    assert status_of(results, "back_length") == "WARN"
+    assert next(r.details for r in results if r.name == "back_length") == ["c1-A|miss: back has 351 characters"]

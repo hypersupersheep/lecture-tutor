@@ -430,7 +430,17 @@ def _cmd_map_mermaid(args) -> int:
     except conceptmap.UnknownView as e:
         print(_one_line(e), file=sys.stderr)
         return EXIT_USAGE
-    _print_json({"path": str(path)})
+    if isinstance(path, list):
+        _print_json({"paths": [str(p) for p in path]})
+    else:
+        _print_json({"path": str(path)})
+    return EXIT_OK
+
+
+def _cmd_cite_link(args) -> int:
+    from .citations import link_unit
+
+    _print_json(link_unit(Path(args.unit)))
     return EXIT_OK
 
 
@@ -591,6 +601,13 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--unit", type=_path, required=True, help="the unit folder")
     ig.add_argument("--id", required=True, help="the item id")
     ig.set_defaults(func=_cmd_items_get)
+    cite = sub.add_parser("cite", help="turn the note's time citations into links to the video")
+    cite_sub = cite.add_subparsers(dest="cite_command", required=True)
+    cl = cite_sub.add_parser(
+        "link", help="link every plain time citation in explanation.md to the video (units from a link only)"
+    )
+    cl.add_argument("--unit", type=_path, required=True, help="the unit folder")
+    cl.set_defaults(func=_cmd_cite_link)
     cards = sub.add_parser("cards", help="export Anki cards, add cards for missed quiz items")
     cards_sub = cards.add_subparsers(dest="cards_command", required=True)
     ce = cards_sub.add_parser("export", help="write cards.tsv (Anki import) from cards.json")
@@ -630,9 +647,12 @@ def build_parser() -> argparse.ArgumentParser:
     mv = map_sub.add_parser("validate", help="check map.json")
     mv.add_argument("--unit", type=_path, required=True, help="the unit folder")
     mv.set_defaults(func=_cmd_map_validate)
-    mm = map_sub.add_parser("mermaid", help="write overview.mmd from map.json")
+    mm = map_sub.add_parser(
+        "mermaid", help="write the map as Mermaid: one overview-<view>.mmd per view, or overview.mmd"
+    )
     mm.add_argument("--unit", type=_path, required=True, help="the unit folder")
-    mm.add_argument("--view", default=None, help="export only this view (default: the whole map)")
+    mm.add_argument("--view", default=None,
+                    help="write only this view, to overview.mmd (default: every view, or the whole map without views)")
     mm.set_defaults(func=_cmd_map_mermaid)
     ver = sub.add_parser("verify", help="run the delivery gate on a unit and write verify.json")
     ver.add_argument("--unit", type=_path, required=True, help="the unit folder")

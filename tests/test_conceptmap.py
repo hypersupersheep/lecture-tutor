@@ -234,3 +234,41 @@ def test_cli_unknown_view_is_one_line(tmp_path, capsys):
     assert main(["map", "mermaid", "--unit", str(ok), "--view", "two\nlines"]) == 2
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == "unknown view: two lines\n"
+
+
+# ---- a map with views is exported by view (Task 29, L11) ----------------------
+
+
+def test_mermaid_writes_one_file_per_view(tmp_path, capsys):
+    unit = tmp_path / "课程 资料" / "第1周"
+    m = map_with_edge(verb="uses")
+    m["nodes"].append({"id": "c", "label": "C", "type": "example"})
+    m["edges"].append({"from": "b", "to": "c", "verb": "shows"})
+    m["views"] = [{"id": "v1", "nodes": ["a", "b"]}, {"id": "later part", "nodes": ["b", "c"]}]
+    write_map(unit, m)
+    assert main(["map", "mermaid", "--unit", str(unit)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    expected = [unit / "overview-v1.mmd", unit / "overview-later part.mmd"]
+    assert out == {"paths": [str(p) for p in expected]}
+    assert expected[0].read_bytes() == AB_MERMAID.encode("utf-8")
+    assert expected[1].read_text(encoding="utf-8") == to_mermaid(m, "later part")
+    assert not (unit / "overview.mmd").exists()
+    # one view on request still writes overview.mmd; a map without views is one file
+    assert main(["map", "mermaid", "--unit", str(unit), "--view", "v1"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(unit / "overview.mmd")}
+    plain = tmp_path / "plain"
+    write_map(plain, map_with_edge(verb="uses"))
+    assert main(["map", "mermaid", "--unit", str(plain)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(plain / "overview.mmd")}
+    assert sorted(p.name for p in plain.glob("*.mmd")) == ["overview.mmd"]
+
+
+def test_mermaid_view_id_must_be_a_file_name(tmp_path, capsys):
+    unit = tmp_path / "unit"
+    m = map_with_edge(verb="uses")
+    m["views"] = [{"id": "a/b", "nodes": ["a", "b"]}]
+    write_map(unit, m)
+    assert main(["map", "mermaid", "--unit", str(unit)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "a/b" in captured.err and captured.err.count("\n") == 1
+    assert list(unit.glob("*.mmd")) == []
