@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tutor_any_lecture.textstats import char_jaccard, containment, jaccard, ngrams, units
+from tutor_any_lecture.textstats import char_jaccard, containment, ngrams, units
 
 
 def test_units_cjk_vs_en():
@@ -21,14 +21,18 @@ def test_ngrams_and_containment():
     assert containment("Interest grows", "Compound interest grows fast.", "en") == 1.0
     # A = {离散复, 散复利, 复利很, 利很快}; two of the four are in B
     assert containment("离散复利很快", "离散复利", "zh") == 0.5
-    # A = {a b, b c}, B = {b c, c d}: one shared, three in the union
-    assert jaccard("a b c", "b c d", "en") == pytest.approx(1 / 3)
 
 
 def test_char_jaccard_keeps_punctuation():
     # 19 and 20 distinct 3-grams, 18 shared, 21 in the union
     assert char_jaccard("What is a martingale?", "What is a martingale ?") == pytest.approx(18 / 21)
 
+
+
+def test_word_jaccard_is_gone():
+    from tutor_any_lecture import textstats
+
+    assert not hasattr(textstats, "jaccard")
 
 
 def test_no_cross_module_private_imports():

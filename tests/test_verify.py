@@ -1,6 +1,7 @@
 import json
 import shutil
 
+import pytest
 from conftest import fx
 from tutor_any_lecture.cli import main
 from tutor_any_lecture.unit import UnitPaths
@@ -383,3 +384,28 @@ def test_not_covered_singular_takes_one_number(tmp_path):
     reversed_range = five_slide_unit(tmp_path / "b", "- slides 5–3\n")
     assert entry(run_verify(reversed_range), "coverage")["details"] == [
         f"slide {n} is neither cited nor listed in the not-covered section" for n in (3, 4)]
+
+
+# ---------------------------------------------------------------- broken sources files (Task 23)
+
+
+@pytest.mark.parametrize("name, breakage", [
+    ("source.json", lambda d: d.pop("acquisition")),
+    ("source.json", lambda d: d.update(duration="long")),
+    ("transcript.json", lambda d: d["segments"][0].pop("start")),
+    ("transcript.json", lambda d: d["segments"][1].update(text=None)),
+    ("pages.json", lambda d: d[0].pop("text")),
+    ("pages.json", lambda d: d[2].update(n="3")),
+])
+def test_cli_verify_broken_sources_files_are_one_line(tmp_path, capsys, name, breakage):
+    u = copy_fixture("ok", tmp_path)
+    paths = UnitPaths(u)
+    path = {"source.json": paths.source, "transcript.json": paths.transcript, "pages.json": paths.pages}[name]
+    data = _read_json(path)
+    breakage(data)
+    _write_json(path, data)
+    assert main(["verify", "--unit", str(u)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.endswith("\n") and captured.err.count("\n") == 1
+    assert captured.err.startswith(name)

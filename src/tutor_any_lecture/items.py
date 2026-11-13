@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .checks import CheckResult
 from .notecheck import marker_sections, strip_marker_sections
-from .plan import Plan, load_plan, read_json
+from .plan import Plan, load_plan, read_json, read_text
 from .textstats import containment
 from .unit import UnitPaths
 
@@ -317,7 +317,7 @@ def validate_unit(unit: Path) -> list[CheckResult]:
     paths = UnitPaths(unit)
     plan = load_plan(paths.plan)
     items = load_items(paths.items)
-    md = paths.explanation.read_text(encoding="utf-8") if paths.explanation.exists() else None
+    md = read_text(paths.explanation, "explanation.md") if paths.explanation.exists() else None
     assignment = _read_assignment(paths.assignment) if paths.assignment.exists() else None
     return validate_items(items, plan, md, plan.note_language, assignment)
 

@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .plan import read_json
 from .source import SourceInfo, sha256_file
 from .transcript import AcquireError
 from .unit import UnitPaths
@@ -103,8 +104,30 @@ def load_pages(unit: Path) -> list[Page]:
     path = UnitPaths(unit).pages
     if not path.exists():
         return []
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return [Page(d["n"], d["label"], d["text"], d.get("image")) for d in data]
+    data = read_json(path, "pages.json")
+    if not isinstance(data, list):
+        raise ValueError("pages.json: the top level must be a list of pages")
+    return [_page(d, k) for k, d in enumerate(data)]
+
+
+def _page(d, k: int) -> Page:
+    """One entry of pages.json; a missing key or a wrong type raises ValueError("pages.json: …")."""
+    where = f"pages.json: entry {k}"
+    if not isinstance(d, dict):
+        raise ValueError(f"{where} is not an object")
+    missing = [key for key in ("n", "label", "text") if key not in d]
+    if missing:
+        raise ValueError(f"{where} is missing {', '.join(missing)}")
+    if not isinstance(d["n"], int) or isinstance(d["n"], bool):
+        raise ValueError(f"{where}: n must be a whole number, got {d['n']!r}")
+    for key in ("label", "image"):
+        if not isinstance(d.get(key), (str, type(None))):
+            raise ValueError(f"{where}: {key} must be text or null, got {d[key]!r}")
+    if d["label"] is not None and not d["label"].isdecimal():
+        raise ValueError(f"{where}: label must be digits or null, got {d['label']!r}")
+    if not isinstance(d["text"], str):
+        raise ValueError(f"{where}: text must be text, got {d['text']!r}")
+    return Page(d["n"], d["label"], d["text"], d.get("image"))
 
 
 def max_label(pages: list[Page]) -> int:

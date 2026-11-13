@@ -114,3 +114,61 @@ def test_load_plan_faults(tmp_path, key, value):
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     with pytest.raises(PlanError):
         load_plan(path)
+
+
+# ---- loaders name their file, accept a BOM; Windows device names (Task 23) ----
+
+
+def ok_unit(tmp_path):
+    """Local helper: a copy of the ok fixture unit."""
+    import shutil
+
+    from conftest import fx
+
+    dst = tmp_path / "unit"
+    shutil.copytree(fx("units", "ok"), dst)
+    return dst
+
+
+def test_missing_plan_names_the_file(tmp_path, capsys):
+    with pytest.raises(FileNotFoundError) as e:
+        load_plan(tmp_path / "plan.json")
+    assert str(e.value) == f"plan.json: not found in {tmp_path}"
+    unit = tmp_path / "课程 资料"
+    unit.mkdir()
+    assert main(["verify", "--unit", str(unit)]) == 1
+    assert one_line_error(capsys) == f"plan.json: not found in {unit}\n"
+
+
+@pytest.mark.parametrize("name", ["plan.json", "items.json", "assignment.json", "cards.json", "map.json",
+                                  "explanation.md"])
+def test_bom_is_accepted_in_agent_written_files(tmp_path, name):
+    from tutor_any_lecture.verify import run_verify
+
+    unit = ok_unit(tmp_path)
+    path = unit / name
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+    r = run_verify(unit)
+    assert r["overall"] == "PASS", r
+    assert all(c["status"] == "PASS" for c in r["checks"] if c["name"] in ("items", "cards", "map"))
+
+
+def test_explanation_not_utf8_names_the_file(tmp_path, capsys):
+    unit = ok_unit(tmp_path)
+    (unit / "explanation.md").write_bytes(b"# Title\n\xff\xfe\n")
+    assert main(["verify", "--unit", str(unit)]) == 1
+    assert one_line_error(capsys) == "explanation.md: not valid UTF-8\n"
+    assert main(["items", "validate", "--unit", str(unit)]) == 1
+    assert one_line_error(capsys) == "explanation.md: not valid UTF-8\n"
+
+
+@pytest.mark.parametrize("value, ok", [
+    ("CON", False), ("nul", False), ("COM1", False), ("aux.txt", False), ("Lpt9", False),
+    ("console", True), ("auxiliary", True), ("com10", True),
+])
+def test_safe_name_rejects_windows_device_names(value, ok):
+    if ok:
+        assert safe_name(value, "unit") == value
+    else:
+        with pytest.raises(PlanError):
+            safe_name(value, "unit")

@@ -8,6 +8,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .plan import read_json
+
 
 class EmptyTranscript(ValueError):
     """An input file held no timed segment."""
@@ -42,12 +44,40 @@ class Transcript:
 
     @classmethod
     def from_json(cls, path: Path) -> Transcript:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        segments = [Segment(d["start"], d["end"], d["text"], d.get("words")) for d in data["segments"]]
+        """Read transcript.json. A missing key or a wrong type raises ValueError("transcript.json: …")."""
+        data = read_json(path, "transcript.json")
+        if not isinstance(data, dict) or "segments" not in data or "language" not in data:
+            raise ValueError('transcript.json: the top level must be an object with "language" and "segments"')
+        if not isinstance(data["language"], (str, type(None))):
+            raise ValueError(f"transcript.json: language must be text or null, got {data['language']!r}")
+        if not isinstance(data["segments"], list):
+            raise ValueError("transcript.json: segments must be a list")
+        segments = [_segment(d, n) for n, d in enumerate(data["segments"])]
         return cls(segments, data["language"])
 
     def text(self) -> str:
         return " ".join(s.text for s in self.segments)
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _segment(d, n: int) -> Segment:
+    where = f"transcript.json: segment {n}"
+    if not isinstance(d, dict):
+        raise ValueError(f"{where} is not an object")
+    missing = [k for k in ("start", "end", "text") if k not in d]
+    if missing:
+        raise ValueError(f"{where} is missing {', '.join(missing)}")
+    if not (_is_number(d["start"]) and _is_number(d["end"])):
+        raise ValueError(f"{where}: start and end must be numbers")
+    if not isinstance(d["text"], str):
+        raise ValueError(f"{where}: text must be text, got {d['text']!r}")
+    words = d.get("words")
+    if words is not None and not isinstance(words, list):
+        raise ValueError(f"{where}: words must be a list or null")
+    return Segment(d["start"], d["end"], d["text"], words)
 
 
 def primary_subtag(code: str | None) -> str | None:

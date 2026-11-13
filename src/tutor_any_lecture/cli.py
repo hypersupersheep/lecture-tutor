@@ -381,7 +381,7 @@ def _cmd_map_mermaid(args) -> int:
         print(conceptmap.format_results(e.results), file=sys.stderr)
         return EXIT_FAIL
     except conceptmap.UnknownView as e:
-        print(str(e), file=sys.stderr)
+        print(_one_line(e), file=sys.stderr)
         return EXIT_USAGE
     print(str(path))
     return EXIT_OK

@@ -226,3 +226,11 @@ def test_cli_map_mermaid_view(tmp_path):
     write_map(unit, m)
     assert main(["map", "mermaid", "--unit", str(unit), "--view", "v1"]) == 0
     assert (unit / "overview.mmd").read_bytes() == AB_MERMAID.encode("utf-8")
+
+
+def test_cli_unknown_view_is_one_line(tmp_path, capsys):
+    ok = tmp_path / "ok"
+    write_map(ok, map_with_edge(verb="uses"))
+    assert main(["map", "mermaid", "--unit", str(ok), "--view", "two\nlines"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "unknown view: two lines\n"

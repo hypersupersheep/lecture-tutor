@@ -104,15 +104,6 @@ def containment(a: str, b: str, lang: str) -> float:
     return len(na & nb) / len(na)
 
 
-def jaccard(a: str, b: str, lang: str) -> float:
-    """|A∩B| / |A∪B| over n-grams; 0.0 when the union is empty."""
-    na, nb = ngrams(a, lang), ngrams(b, lang)
-    union = na | nb
-    if not union:
-        return 0.0
-    return len(na & nb) / len(union)
-
-
 def _char_norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.lower()).strip()
 

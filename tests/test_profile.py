@@ -90,7 +90,7 @@ def test_set_value_rejects_bad_key_and_value(tmp_cfg):
 
 def test_set_value_parses_outputs_and_platforms(tmp_cfg):
     assert set_value("outputs", "[explanation, quiz]").outputs == ["explanation", "quiz"]
-    assert set_value("platforms", "{video: https://example.org}").platforms == {"video": "https://example.org"}
+    assert set_value("platforms", "{moodle: https://example.org}").platforms == {"moodle": "https://example.org"}
     assert load_profile().outputs == ["explanation", "quiz"]
 
 
@@ -197,3 +197,31 @@ def test_bool_hint_names_no_invented_word(tmp_path):
     assert "put the value in quotes" in message
     assert '"no"' not in message
     assert message == "note_language: put the value in quotes; YAML reads yes, no, on, off, true and false as booleans"
+
+
+# ---- every documented value is checked (Task 23) ------------------------------
+
+
+@pytest.mark.parametrize("key, value, text", [
+    ("naming", "fancy", "naming: fancy\n"),
+    ("outputs", "[explanation, slides]", "outputs: [explanation, slides]\n"),
+    ("outputs", "[explanation, 3]", "outputs: [explanation, 3]\n"),
+    ("platforms", "{blackboard: https://example.org}", "platforms: {blackboard: https://example.org}\n"),
+    ("platforms", "{moodle: [a, b]}", "platforms: {moodle: [a, b]}\n"),
+])
+def test_profile_rejects_unknown_naming_and_members(tmp_cfg, tmp_path, key, value, text):
+    with pytest.raises(ProfileError):
+        set_value(key, value)
+    assert not (config_dir() / "profile.yaml").exists()
+    path = tmp_path / "p.yaml"
+    path.write_text(text, encoding="utf-8", newline="\n")
+    with pytest.raises(ProfileError):
+        load_profile(path)
+
+
+def test_profile_accepts_documented_members(tmp_cfg):
+    assert set_value("naming", "default").naming == "default"
+    assert set_value("outputs", "[explanation, pretest, quiz, cards, map]").outputs == [
+        "explanation", "pretest", "quiz", "cards", "map"]
+    assert set_value("platforms", "{moodle: https://m.example.org, panopto: https://p.example.org}").platforms == {
+        "moodle": "https://m.example.org", "panopto": "https://p.example.org"}

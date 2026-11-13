@@ -20,7 +20,7 @@ from .citations import format_seconds, parse, resolve
 from .conceptmap import load_map, validate_map
 from .items import load_items, validate_items
 from .notecheck import check_note, cited_quotes, marker_sections, strip_marker_sections
-from .plan import load_plan
+from .plan import load_plan, read_json, read_text
 from .slides import load_pages, max_label
 from .source import SourceInfo
 
@@ -362,7 +362,7 @@ def _check_items(p: UnitPaths, plan, md: str, lang: str) -> dict:
     assignment = None
     if p.assignment.exists():
         try:
-            assignment = json.loads(p.assignment.read_text(encoding="utf-8"))
+            assignment = read_json(p.assignment, "assignment.json")
         except ValueError as e:
             return _entry("items", "FAIL", [_error_detail("assignment.json", e)])
     try:
@@ -423,7 +423,7 @@ def run_verify(unit: Path) -> dict:
     unit = Path(unit)
     p = UnitPaths(unit)
     plan = load_plan(p.plan)
-    md = p.explanation.read_text(encoding="utf-8")
+    md = read_text(p.explanation, "explanation.md")
     source = SourceInfo.read(p.source) if p.source.exists() else None
     transcript = Transcript.from_json(p.transcript) if p.transcript.exists() else None
     pages = load_pages(unit)

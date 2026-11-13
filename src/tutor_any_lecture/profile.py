@@ -23,7 +23,11 @@ ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
     "output_target": ("markdown", "obsidian", "notion"),
     "downloads": ("ask", "allow"),
     "public_video_audio": ("on", "off"),
+    "naming": ("default",),
 }
+# The members outputs may list, and the keys platforms may hold (each value a base URL).
+OUTPUT_MEMBERS = ("explanation", "pretest", "quiz", "cards", "map")
+PLATFORM_KEYS = ("moodle", "panopto")
 
 
 class ProfileError(Exception):
@@ -76,10 +80,22 @@ def _check_allowed(key: str, value: Any) -> None:
 
 
 def _check_structured(key: str, value: Any) -> None:
-    if key == "outputs" and not isinstance(value, list):
-        raise ProfileError(f"outputs must be a list, for example [explanation, quiz]; got {value!r}")
-    if key == "platforms" and not isinstance(value, dict):
-        raise ProfileError(f"platforms must be a mapping, for example {{video: https://example.org}}; got {value!r}")
+    if key == "outputs":
+        if not isinstance(value, list):
+            raise ProfileError(f"outputs must be a list, for example [explanation, quiz]; got {value!r}")
+        bad = [x for x in value if x not in OUTPUT_MEMBERS]
+        if bad:
+            raise ProfileError(f"outputs: {bad[0]!r} is not allowed; allowed members: {', '.join(OUTPUT_MEMBERS)}")
+    if key == "platforms":
+        if not isinstance(value, dict):
+            raise ProfileError(
+                f"platforms must be a mapping, for example {{moodle: https://moodle.example.edu}}; got {value!r}"
+            )
+        for name, url in value.items():
+            if name not in PLATFORM_KEYS:
+                raise ProfileError(f"platforms: {name!r} is not allowed; allowed keys: {', '.join(PLATFORM_KEYS)}")
+            if not isinstance(url, str):
+                raise ProfileError(f"platforms: {name} must be a base URL as text; got {url!r}")
 
 
 def load_profile(path: Path | None = None) -> Profile:

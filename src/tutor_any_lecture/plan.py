@@ -13,6 +13,10 @@ TRACKED_MAX = 5
 LANGUAGE_RE = re.compile(r"[a-z]{2,3}")  # applied with fullmatch
 # Characters no folder name may hold on Windows, macOS or Linux; below U+0020 is checked apart.
 UNSAFE_NAME_CHARS = frozenset('/\\:*?"<>|')
+# Windows device names: no file or folder may be called one, with or without an extension.
+WINDOWS_DEVICE_NAMES = frozenset(
+    ["con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)), *(f"lpt{n}" for n in range(1, 10))]
+)
 
 
 class PlanError(Exception):
@@ -20,20 +24,32 @@ class PlanError(Exception):
 
 
 def read_json(path, name: str, error: type[Exception] = ValueError):
-    """Parse the agent-written JSON file ``path``, whose file name is ``name``.
+    """Parse the JSON file ``path``, whose file name is ``name``; a leading byte-order mark is accepted.
 
     A missing file raises FileNotFoundError. Bytes that are not UTF-8 and invalid JSON
     raise ``error`` with a one-line message that starts with ``name``.
     """
     raw = Path(path).read_bytes()
     try:
-        text = raw.decode("utf-8")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as e:
         raise error(f"{name}: not UTF-8 text: {e}") from None
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         raise error(f"{name}: not valid JSON: {e}") from None
+
+
+def read_text(path, name: str) -> str:
+    """The UTF-8 text file ``path``, whose file name is ``name``, without a leading byte-order mark.
+
+    A missing file raises FileNotFoundError; bytes that are not UTF-8 raise
+    ValueError("<name>: not valid UTF-8").
+    """
+    try:
+        return Path(path).read_bytes().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError(f"{name}: not valid UTF-8") from None
 
 
 def safe_name(value: str, what: str) -> str:
@@ -54,6 +70,8 @@ def safe_name(value: str, what: str) -> str:
             f"{what} name {value!r} cannot be a folder name: "
             "avoid / \\ : * ? \" < > | and leading or trailing spaces or dots"
         )
+    if value.split(".", 1)[0].lower() in WINDOWS_DEVICE_NAMES:
+        raise PlanError(f"{what} name {value!r} cannot be a folder name: it is a Windows device name")
     return value
 
 
@@ -114,6 +132,8 @@ def _check_tracked(concepts, tracked) -> None:
 
 def load_plan(path) -> Plan:
     """Read and check plan.json. A missing file raises FileNotFoundError; a bad one, PlanError."""
+    if not Path(path).exists():
+        raise FileNotFoundError(f"plan.json: not found in {Path(path).parent}")
     data = read_json(path, "plan.json", PlanError)
     if not isinstance(data, dict):
         raise PlanError("plan.json: the top level must be an object")
