@@ -115,9 +115,9 @@ def _track_url(entries) -> str:
 def pick_caption(info: dict, lecture_language: str) -> tuple[str, str, str] | None:
     """Choose a caption track as ``(kind, lang, url)``; ``None`` when nothing fits.
 
-    A manual track ("cc") must match the target language; when the target is only a
-    guess (``lecture_language`` is auto and the video declares no language), a lone
-    manual track is used whatever its language. An automatic track ("auto") must not be
+    A manual track ("cc") must match the target language; when none matches, the video
+    declares no language and there is exactly one manual track, that track is used
+    whatever its language. An automatic track ("auto") must not be
     a translation; the original-language track wins even when it differs from
     ``lecture_language``.
     """
@@ -134,7 +134,7 @@ def pick_caption(info: dict, lecture_language: str) -> tuple[str, str, str] | No
         target = origs[0][: -len("-orig")] if len(origs) == 1 else "en"
 
     key = _match(target, subs.keys())
-    if key is None and lecture_language == "auto" and not info_lang and len(subs) == 1:
+    if key is None and not info_lang and len(subs) == 1:
         key = next(iter(subs))
     if key is not None:
         return ("cc", key, _track_url(subs[key]))

@@ -241,7 +241,8 @@ def test_only_translated_means_none():
 
 
 def test_manual_other_language_means_none():
-    assert pick_caption(info(subs={"fr": [orig()]}), "en") is None
+    # The video declares its language, so a lone track in another language is not used.
+    assert pick_caption(info(subs={"fr": [orig()]}, lang="en"), "en") is None
 
 
 def test_manual_regional_variant_matches():
@@ -532,10 +533,11 @@ def test_ydl_options_name_both_js_runtimes(fake_ydl_no_caps, fake_asr, tmp_path,
 
 def test_lone_manual_track_is_used_without_a_language(monkeypatch, tmp_path, profile_off):
     assert pick_caption(info(subs={"fr": [orig()]}), "auto")[:2] == ("cc", "fr")
-    # Not when the video declares its language, nor among two tracks, nor against a stated lecture language.
+    # Also against a stated lecture language; not when the video declares its language, nor among two tracks.
+    assert pick_caption(info(subs={"fr": [orig()]}), "en")[:2] == ("cc", "fr")
     assert pick_caption(info(subs={"fr": [orig()]}, lang="en"), "auto") is None
     assert pick_caption(info(subs={"fr": [orig()], "de": [orig()]}), "auto") is None
-    assert pick_caption(info(subs={"fr": [orig()]}), "en") is None
+    assert pick_caption(info(subs={"fr": [orig()], "de": [orig()]}), "en") is None
     fake = _install(monkeypatch, info(subs={"fr": [orig()]}), {("cc", "fr"): GOOD_VTT})
     assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
     src = read_source(tmp_path)
