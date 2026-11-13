@@ -30,11 +30,13 @@ THRESHOLDS = {
     "bold_max": 15,
     "highlights_max": 8,
     "bullet_share_max": 0.10,
-    "cross_language_quote_ratio": (1.0, 2.0),
+    # Quoted characters per unit of prose, for a CJK note of a non-CJK lecture, by quote_density.
+    "cross_language_quote_ratio": {"light": (0.15, 0.6), "standard": (0.4, 1.2), "dense": (1.0, 2.0)},
     "same_language_quote_share": (0.10, 0.40),
 }
 
 GOALS = ("deep", "exam", "quick")
+QUOTE_DENSITIES = tuple(THRESHOLDS["cross_language_quote_ratio"])
 MARKER_NAMES = ("pretest", "check", "not-covered", "errata")
 SINGLE_MARKERS = ("pretest", "not-covered", "errata")
 CALLOUT_TYPES = {"NOTE", "IMPORTANT", "WARNING", "CAUTION"}
@@ -399,6 +401,100 @@ def _details_problems(bodies: dict[str, list[str]]) -> list[str]:
     return problems
 
 
+def _round(x: float | None) -> float | None:
+    return None if x is None else round(x, 2)
+
+
+def _check_args(goal: str, quote_density: str) -> None:
+    if goal not in GOALS:
+        raise ValueError(f"unknown goal {goal!r}; expected one of {', '.join(GOALS)}")
+    if quote_density not in QUOTE_DENSITIES:
+        raise ValueError(f"unknown quote_density {quote_density!r}; expected one of {', '.join(QUOTE_DENSITIES)}")
+
+
+def _counts(p: str, p_lines: list[str], w_lines: list[str], lang: str) -> dict:
+    """The raw numbers the per-minute and quote rules use, from the prose P and the note W."""
+    inline_all = [q for line in p_lines for q in _inline_quotes(line)]
+    blocks = [(a, b) for a, b in _blockquotes(p_lines) if not CALLOUT_START_RE.match(p_lines[a])]
+    return {
+        "units": units(p, lang),
+        "times": sum(1 for c in parse(p) if c.kind == "time"),
+        "quotes": len(inline_all) + len(blocks),
+        "quote_chars": sum(_nonspace(q) for q in inline_all) + sum(
+            _nonspace(BLOCKQUOTE_PREFIX_RE.sub("", line)) for a, b in blocks for line in p_lines[a:b]
+        ),
+        "nonspace": _nonspace(p),
+        "h2": sum(1 for line in w_lines if line.startswith("## ")),
+    }
+
+
+def _length_window(goal: str, unit_key: str, duration_min: float) -> tuple[float, float]:
+    lo, hi = THRESHOLDS["length_per_min"][goal][unit_key]
+    return lo, max(hi, THRESHOLDS["length_ceiling_min"][unit_key] / duration_min)
+
+
+def _h2_cap(duration_min: float) -> int:
+    return max(THRESHOLDS["h2_per_90min"], math.ceil(THRESHOLDS["h2_per_90min"] * duration_min / 90))
+
+
+def _is_cross(lang: str, lecture_lang: str | None) -> bool:
+    """A CJK note of a non-CJK lecture: its quotes are measured as a ratio, not a share."""
+    return lecture_lang is not None and is_cjk_language(lang) and not is_cjk_language(lecture_lang)
+
+
+def measure_note(
+    md: str,
+    lang: str,
+    goal: str,
+    duration_min: float | None,
+    lecture_lang: str | None = None,
+    quote_density: str = "standard",
+) -> dict:
+    """What the per-minute and quote rules of ``check_note`` measure, with their limits.
+
+    ``length``: the units of the lecture prose (the note without code and marker sections,
+    counted by ``units``), in all and per minute, with the window. ``time_citations`` and
+    ``quotes``: per minute, with the minimum. One of ``quote_ratio`` (a CJK note of a
+    non-CJK lecture: quoted characters per CJK character of prose) and ``quote_share``
+    (quoted characters over the prose's non-space characters) is set, the other is None.
+    ``h2``: the number of H2 headings and the cap. Per-minute values and limits are None
+    when the duration is unknown. Numbers are rounded to two decimals.
+    """
+    _check_args(goal, quote_density)
+    cjk = is_cjk_language(lang)
+    unit_key = "cjk" if cjk else "words"
+    known = duration_min is not None and duration_min > 0
+    w = strip_code(md)
+    p = strip_marker_sections(w)
+    n = _counts(p, p.split("\n"), w.split("\n"), lang)
+
+    def per_min(count: int) -> float | None:
+        return _round(count / duration_min) if known else None
+
+    if _is_cross(lang, lecture_lang):
+        ratio = {"value": _round(n["quote_chars"] / n["units"]) if n["units"] else None,
+                 "window": list(THRESHOLDS["cross_language_quote_ratio"][quote_density])}
+        share = None
+    else:
+        ratio = None
+        share = {"value": _round(n["quote_chars"] / n["nonspace"]) if n["nonspace"] else None,
+                 "window": list(THRESHOLDS["same_language_quote_share"])}
+    return {
+        "minutes": _round(duration_min) if known else None,
+        "length": {
+            "unit": "CJK characters" if cjk else "words",
+            "total": n["units"],
+            "per_min": per_min(n["units"]),
+            "window": [_round(x) for x in _length_window(goal, unit_key, duration_min)] if known else None,
+        },
+        "time_citations": {"per_min": per_min(n["times"]), "min": THRESHOLDS["timestamps_per_min"][goal] if known else None},
+        "quotes": {"per_min": per_min(n["quotes"]), "min": THRESHOLDS["quotes_per_min"][goal] if known else None},
+        "quote_ratio": ratio,
+        "quote_share": share,
+        "h2": {"count": n["h2"], "max": _h2_cap(duration_min) if known else None},
+    }
+
+
 def check_note(
     md: str,
     lang: str,
@@ -406,10 +502,14 @@ def check_note(
     duration_min: float | None,
     target: str,
     lecture_lang: str | None = None,
+    quote_density: str = "standard",
 ) -> list[CheckResult]:
-    """One CheckResult per rule, in a fixed order; `duration` is appended when unknown."""
-    if goal not in GOALS:
-        raise ValueError(f"unknown goal {goal!r}; expected one of {', '.join(GOALS)}")
+    """One CheckResult per rule, in a fixed order; `duration` is appended when unknown.
+
+    ``quote_density`` (light, standard or dense) picks the quote-ratio window of a CJK
+    note of a non-CJK lecture; the same-language share does not depend on it.
+    """
+    _check_args(goal, quote_density)
     cjk = is_cjk_language(lang)
     unit_key = "cjk" if cjk else "words"
     unit_name = "CJK characters" if cjk else "words"
@@ -482,16 +582,11 @@ def check_note(
     )
 
     # -- WARN rules
-    inline_all = [q for line in p_lines for q in _inline_quotes(line)]
-    quote_count = len(inline_all) + len(blocks)
-    quote_chars = sum(_nonspace(q) for q in inline_all) + sum(
-        _nonspace(BLOCKQUOTE_PREFIX_RE.sub("", line)) for a, b in blocks for line in p_lines[a:b]
-    )
-    p_units = units(p, lang)
+    counts = _counts(p, p_lines, w_lines, lang)
+    quote_count, quote_chars, p_units = counts["quotes"], counts["quote_chars"], counts["units"]
 
     if known:
-        lo, hi = THRESHOLDS["length_per_min"][goal][unit_key]
-        hi = max(hi, THRESHOLDS["length_ceiling_min"][unit_key] / duration_min)
+        lo, hi = _length_window(goal, unit_key, duration_min)
         rate = p_units / duration_min
         results.append(
             _result(
@@ -502,7 +597,7 @@ def check_note(
                 else [f"{rate:.1f} {unit_name} per minute, expected {lo}–{_num(hi)} for {goal}"],
             )
         )
-        times = sum(1 for c in parse(p) if c.kind == "time")
+        times = counts["times"]
         t_min = THRESHOLDS["timestamps_per_min"][goal]
         results.append(
             _result(
@@ -523,8 +618,7 @@ def check_note(
                 else [f"{quote_count / duration_min:.2f} quotes per minute, expected at least {q_min}"],
             )
         )
-        cap = max(THRESHOLDS["h2_per_90min"], math.ceil(THRESHOLDS["h2_per_90min"] * duration_min / 90))
-        h2 = sum(1 for line in w_lines if line.startswith("## "))
+        cap, h2 = _h2_cap(duration_min), counts["h2"]
         results.append(_result("h2_count", "WARN", [] if h2 <= cap else [f"{h2} H2 headings, at most {cap}"]))
     else:
         for name in ("length", "timestamps", "quotes", "h2_count"):
@@ -587,9 +681,8 @@ def check_note(
         )
     )
 
-    cross = lecture_lang is not None and cjk and not is_cjk_language(lecture_lang)
-    if cross:
-        lo, hi = THRESHOLDS["cross_language_quote_ratio"]
+    if _is_cross(lang, lecture_lang):
+        lo, hi = THRESHOLDS["cross_language_quote_ratio"][quote_density]
         ratio_problems = []
         if p_units:
             ratio = quote_chars / p_units
@@ -601,7 +694,7 @@ def check_note(
         results.append(_skipped("quote_ratio", "same-language note uses quote_share"))
         lo, hi = THRESHOLDS["same_language_quote_share"]
         share_problems = []
-        total = _nonspace(p)
+        total = counts["nonspace"]
         if total:
             qshare = quote_chars / total
             if not lo <= qshare <= hi:

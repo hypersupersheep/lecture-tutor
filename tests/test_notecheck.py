@@ -101,9 +101,43 @@ def test_code_is_ignored():
 
 
 def test_quote_rule_follows_lecture_language():
-    assert status_of(check_note(ZH_NOTE, "zh", "deep", 90, "markdown", "en"), "quote_ratio") == "WARN"
-    assert status_of(check_note(ZH_NOTE, "zh", "deep", 90, "markdown", "en"), "quote_share") == "PASS"
+    # A ratio of 0.75 is below the dense window (1.0-2.0) and inside the standard one (0.4-1.2).
+    dense = check_note(ZH_NOTE, "zh", "deep", 90, "markdown", "en", quote_density="dense")
+    assert status_of(dense, "quote_ratio") == "WARN" and status_of(dense, "quote_share") == "PASS"
+    assert status_of(check_note(ZH_NOTE, "zh", "deep", 90, "markdown", "en"), "quote_ratio") == "PASS"
     assert status_of(check_note(ZH_NOTE, "zh", "deep", 90, "markdown"), "quote_ratio") == "PASS"
+
+
+def zh_note_with_quote(chars):
+    """Local helper: 100 CJK characters of prose and one English blockquote of ``chars`` letters.
+
+    The citation stands on the line after the blockquote, so the quote ratio is ``chars / 100``.
+    """
+    return "## A\n\n" + "利" * 100 + "\n\n> " + "x" * chars + "\n\n(slide 2, 0:40)\n"
+
+
+@pytest.mark.parametrize("density, window", [
+    ("light", (0.15, 0.6)),
+    ("standard", (0.4, 1.2)),
+    ("dense", (1.0, 2.0)),
+])
+def test_quote_window_follows_quote_density(density, window):
+    def status(chars):
+        results = check_note(zh_note_with_quote(chars), "zh", "deep", 90, "markdown", "en", quote_density=density)
+        return status_of(results, "quote_ratio")
+
+    lo, hi = (round(x * 100) for x in window)
+    assert status(lo) == "PASS" and status(hi) == "PASS"
+    assert status(lo - 5) == "WARN" and status(hi + 5) == "WARN"
+
+
+def test_same_language_share_ignores_quote_density():
+    note = "## A\n\n" + " ".join(["word"] * 60) + ' "a quotation of some length here" (0:30).\n'
+    shares = {d: status_of(check_note(note, "en", "deep", 90, "markdown", "en", quote_density=d), "quote_share")
+              for d in ("light", "standard", "dense")}
+    assert len(set(shares.values())) == 1
+    with pytest.raises(ValueError):
+        check_note(note, "en", "deep", 90, "markdown", "en", quote_density="heavy")
 
 
 def test_h2_count_cap_scales_with_duration():

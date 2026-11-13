@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from .config import config_dir
+from .plan import DEFAULT_QUOTE_DENSITY, QUOTE_DENSITIES
 
 PUBLIC_VIDEO_AUDIO_NOTICE = "Turning this on lets tutor-any-lecture download the audio track of public videos (YouTube, Bilibili and other sites yt-dlp supports) when no usable captions exist, transcribe it locally, then delete it. You are responsible for following each site's terms and copyright; use it for personal study only. Cookies, DRM-protected media and login-only media are never downloaded."
 
@@ -25,6 +26,7 @@ ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
     "downloads": ("ask", "allow"),
     "public_video_audio": ("on", "off"),
     "naming": ("default",),
+    "quote_density": QUOTE_DENSITIES,
 }
 # The members outputs may list, and the keys platforms may hold (each value a base URL).
 OUTPUT_MEMBERS = ("explanation", "pretest", "quiz", "cards", "map")
@@ -50,6 +52,8 @@ class Profile:
     terms: str = "bilingual"
     level: str = "auto"
     goal: str = "deep"
+    # How densely a note in another language than the lecture quotes it; written into plan.json.
+    quote_density: str = DEFAULT_QUOTE_DENSITY
     outputs: list[str] = field(default_factory=lambda: ["explanation", "pretest", "quiz", "cards", "map"])
     output_target: str = "markdown"
     workspace: str = "~/TutorAnyLecture"
@@ -66,7 +70,7 @@ class Profile:
 FIELD_NAMES = tuple(f.name for f in dataclasses.fields(Profile))
 CONSENT_KEY = "public_video_audio_consent"
 # outputs and platforms are structured, the consent key is an optional date; the other
-# eleven fields hold strings.
+# twelve fields hold strings.
 STRING_FIELDS = tuple(name for name in FIELD_NAMES if name not in ("outputs", "platforms", CONSENT_KEY))
 
 

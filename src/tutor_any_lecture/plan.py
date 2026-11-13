@@ -9,6 +9,9 @@ from pathlib import Path
 
 GOALS = ("deep", "exam", "quick")
 OUTPUT_TARGETS = ("markdown", "obsidian")
+# How densely a note in another language than the lecture quotes it; optional in plan.json.
+QUOTE_DENSITIES = ("light", "standard", "dense")
+DEFAULT_QUOTE_DENSITY = "standard"
 TRACKED_MAX = 5
 LANGUAGE_RE = re.compile(r"[a-z]{2,3}")  # applied with fullmatch
 # Characters no folder name may hold on Windows, macOS or Linux; below U+0020 is checked apart.
@@ -89,6 +92,7 @@ class Plan:
     concepts: list[dict]
     tracked: list[str]
     output_target: str
+    quote_density: str = DEFAULT_QUOTE_DENSITY
 
 
 FIELDS = (
@@ -166,7 +170,11 @@ def load_plan(path) -> Plan:
             f"plan.json: outputs must include explanation (the gate always reads explanation.md), got {outputs!r}"
         )
     _check_tracked(data["concepts"], data["tracked"])
+    density = data.get("quote_density", DEFAULT_QUOTE_DENSITY)
+    if density not in QUOTE_DENSITIES:
+        raise PlanError(f"plan.json: quote_density must be one of {', '.join(QUOTE_DENSITIES)}, got {density!r}")
 
     fields = {key: data[key] for key in FIELDS}
+    fields["quote_density"] = density
     fields["duration_s"] = None if duration is None else float(duration)
     return Plan(**fields)

@@ -290,3 +290,22 @@ def test_outputs_must_include_explanation(tmp_cfg, tmp_path):
     with pytest.raises(ProfileError):
         load_profile(write_profile(tmp_path, "outputs: []\n"))
     assert load_profile(write_profile(tmp_path, "outputs: [explanation]\n")).outputs == ["explanation"]
+
+
+# ---- how densely a note quotes (Task 29, L6) -----------------------------------
+
+
+def test_quote_density_values(tmp_cfg, tmp_path):
+    assert Profile().quote_density == "standard"
+    assert load_profile().quote_density == "standard"
+    for value in ("light", "standard", "dense"):
+        assert set_value("quote_density", value).quote_density == value
+    assert load_profile().quote_density == "dense"
+    with pytest.raises(ProfileError) as e:
+        set_value("quote_density", "heavy")
+    assert "quote_density" in str(e.value)
+    assert load_profile().quote_density == "dense"
+    path = tmp_path / "p.yaml"
+    path.write_text("quote_density: heavy\n", encoding="utf-8", newline="\n")
+    with pytest.raises(ProfileError):
+        load_profile(path)

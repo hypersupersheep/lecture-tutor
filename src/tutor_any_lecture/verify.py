@@ -19,7 +19,7 @@ from .checks import CheckResult
 from .citations import format_seconds, parse, resolve
 from .conceptmap import load_map, validate_map
 from .items import load_items, validate_items
-from .notecheck import check_note, cited_quotes, marker_sections, strip_marker_sections
+from .notecheck import CALLOUT_TYPES, check_note, cited_quotes, marker_sections, measure_note, strip_marker_sections
 from .plan import load_plan, read_json, read_text
 from .slides import load_pages, max_label
 from .source import SourceInfo
@@ -360,12 +360,27 @@ def _terms(text: str) -> list[str]:
     return _dedupe([term for _, term in sorted(found)])
 
 
+def _without_reader_guide(text: str) -> str:
+    """``text`` without the lines between its H1 and its first H2: the table of contents and
+    the paragraph that tells the reader how to read the note. Headings stay; a note with no
+    H2 is left whole."""
+    lines = text.split("\n")
+    first_h2 = next((i for i, line in enumerate(lines) if line.startswith("## ")), None)
+    if first_h2 is None:
+        return text
+    return "\n".join([line for line in lines[:first_h2] if line.startswith("# ")] + lines[first_h2:])
+
+
+# The callout type names (NOTE, WARNING, …) are the note's own vocabulary, not lecture terms.
+_CALLOUT_NAMES = {name.casefold() for name in CALLOUT_TYPES}
+
+
 def _check_terms(note_text: str, sources: str) -> dict:
     haystack = _normalise(sources)
     details = [
         f"not in the transcript or slides: {term}"
-        for term in _terms(_terms_text(note_text))
-        if _normalise(term) not in haystack
+        for term in _terms(_terms_text(_without_reader_guide(note_text)))
+        if term.casefold() not in _CALLOUT_NAMES and _normalise(term) not in haystack
     ]
     return _entry("terms", "WARN" if details else "PASS", details)
 
@@ -445,6 +460,29 @@ def _check_banned(md: str) -> dict:
 # ---------------------------------------------------------------- the gate
 
 
+def _span_text(window) -> str:
+    return f"{window[0]}-{window[1]}"
+
+
+def format_measures(m: dict) -> str:
+    """The ``measures:`` line verify prints after its table (ASCII only)."""
+    if m["minutes"] is None:
+        parts = [f"length {m['length']['total']} {m['length']['unit']} (duration unknown: no per-minute values)"]
+    else:
+        unit = m["length"]["unit"]
+        parts = [
+            f"length {m['length']['per_min']} {unit}/min ({_span_text(m['length']['window'])})",
+            f"time citations {m['time_citations']['per_min']}/min (>= {m['time_citations']['min']})",
+            f"quotes {m['quotes']['per_min']}/min (>= {m['quotes']['min']})",
+        ]
+    for key, name in (("quote_ratio", "quote ratio"), ("quote_share", "quote share")):
+        if m[key] is not None:
+            parts.append(f"{name} {m[key]['value']} ({_span_text(m[key]['window'])})")
+    h2 = m["h2"]
+    parts.append(f"H2 {h2['count']}" + (f" (<= {h2['max']})" if h2["max"] is not None else ""))
+    return "measures: " + "; ".join(parts)
+
+
 def run_verify(unit: Path) -> dict:
     """Run the nine checks on ``unit``, write verify.json and return the same object.
 
@@ -487,6 +525,7 @@ def run_verify(unit: Path) -> dict:
                 duration / 60 if duration is not None else None,
                 plan.output_target,
                 lecture_lang=plan.lecture_language,
+                quote_density=plan.quote_density,
             ),
         ),
         _check_items(p, plan, md, lang),
@@ -495,10 +534,13 @@ def run_verify(unit: Path) -> dict:
         _check_banned(md),
     ]
     overall = "FAIL" if any(c["status"] == "FAIL" for c in checks) else "PASS"
+    minutes = duration / 60 if duration is not None else None
     result = {
         "checks": checks,
         "overall": overall,
         "warnings": sum(1 for c in checks if c["status"] == "WARN"),
+        # What structure measured, recorded whether it passed or not.
+        "measures": measure_note(md, lang, plan.goal, minutes, plan.lecture_language, plan.quote_density),
         "report": REPORT_PASS if overall == "PASS" else REPORT_FAIL,
     }
     p.verify.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")

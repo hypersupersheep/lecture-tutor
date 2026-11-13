@@ -183,3 +183,17 @@ def test_plan_outputs_must_include_explanation(tmp_path):
         load_plan(path)
     assert str(e.value).startswith("plan.json:") and "explanation" in str(e.value)
     assert load_plan(write_plan(tmp_path / "only", outputs=["explanation"])).outputs == ["explanation"]
+
+
+# ---- how densely a note quotes (Task 29, L6) -----------------------------------
+
+
+def test_plan_quote_density_defaults_to_standard(tmp_path):
+    assert load_plan(write_plan(tmp_path / "default")).quote_density == "standard"
+    for value in ("light", "standard", "dense"):
+        assert load_plan(write_plan(tmp_path / value, quote_density=value)).quote_density == value
+    for n, bad in enumerate(("heavy", "Light", None, 2)):
+        path = write_plan(tmp_path / f"bad{n}", quote_density=bad)
+        with pytest.raises(PlanError) as e:
+            load_plan(path)
+        assert str(e.value).startswith("plan.json: quote_density")

@@ -467,3 +467,63 @@ def test_cli_verify_broken_sources_files_are_one_line(tmp_path, capsys, name, br
     assert captured.out == ""
     assert captured.err.endswith("\n") and captured.err.count("\n") == 1
     assert captured.err.startswith(name)
+
+
+# ---- what the gate measured; the reader's guide (Task 29, L7, L9) ---------------
+
+
+MEASURE_KEYS = {"minutes", "length", "time_citations", "quotes", "quote_share", "quote_ratio", "h2"}
+
+
+def test_measures_are_reported_on_pass(tmp_path, capsys):
+    u = copy_fixture("ok", tmp_path)
+    r = run_verify(u)
+    assert r["overall"] == "PASS"
+    m = r["measures"]
+    assert set(m) == MEASURE_KEYS
+    assert m["minutes"] == 3.0
+    assert m["length"]["unit"] == "words" and m["length"]["window"] == [26, 133.33]
+    assert m["length"]["per_min"] == round(m["length"]["total"] / 3, 2)
+    assert m["time_citations"] == {"per_min": 1.0, "min": 0.67}
+    assert m["quotes"] == {"per_min": 0.33, "min": 0.22}
+    assert m["quote_ratio"] is None and m["quote_share"]["window"] == [0.1, 0.4]
+    assert 0 < m["quote_share"]["value"] < 1
+    assert m["h2"] == {"count": 3, "max": 16}
+    assert json.loads(UnitPaths(u).verify.read_text(encoding="utf-8"))["measures"] == m
+    # the table: one measures line after the checks, before the report line
+    assert main(["verify", "--unit", str(u)]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == "Automated checks passed; not visually reviewed."
+    assert lines[-2].startswith("measures: ") and sum(x.startswith("measures:") for x in lines) == 1
+    assert lines[-2] == (
+        f"measures: length {m['length']['per_min']} words/min (26-133.33); time citations 1.0/min (>= 0.67); "
+        f"quotes 0.33/min (>= 0.22); quote share {m['quote_share']['value']} (0.1-0.4); H2 3 (<= 16)"
+    )
+
+
+def test_measures_are_reported_on_fail_and_without_duration(tmp_path):
+    r = run_verify(copy_fixture("bad", tmp_path))
+    assert r["overall"] == "FAIL" and set(r["measures"]) == MEASURE_KEYS
+    u = copy_fixture("ok", tmp_path / "unknown")
+    drop_duration(u)
+    m = run_verify(u)["measures"]
+    assert m["minutes"] is None and m["length"]["per_min"] is None and m["length"]["window"] is None
+    assert m["time_citations"]["per_min"] is None and m["h2"] == {"count": 3, "max": None}
+
+
+def test_terms_ignore_the_how_to_read_paragraph(tmp_path):
+    u = copy_fixture("ok", tmp_path)
+    path = UnitPaths(u).explanation
+    md = path.read_text(encoding="utf-8")
+    guide = (
+        "How to read this note: WARNING boxes mark common mistakes, CAUTION boxes hold errata "
+        "and IMPORTANT boxes key results, as the Reading Guide Convention says.\n\n"
+    )
+    first_h2 = md.index("## ")
+    path.write_text(md[:first_h2] + guide + md[first_h2:], encoding="utf-8", newline="\n")
+    assert entry(run_verify(u), "terms") == {"name": "terms", "status": "PASS", "details": []}
+    # callout type names are no terms in the body either; an invented term still is
+    append_to_note(u, "\n\nThe note marks a common mistake with a WARNING box and a tutor addition with a NOTE box (slide 1).\n")
+    assert entry(run_verify(u), "terms")["status"] == "PASS"
+    append_to_note(u, "\n\nHere the Reading Guide Convention applies (slide 1).\n")
+    assert entry(run_verify(u), "terms")["details"] == ["not in the transcript or slides: Reading Guide Convention"]

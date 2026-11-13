@@ -435,7 +435,7 @@ def _cmd_map_mermaid(args) -> int:
 
 
 def _cmd_verify(args) -> int:
-    from .verify import run_verify
+    from .verify import format_measures, run_verify
 
     result = run_verify(Path(args.unit))
     if args.json:
@@ -446,6 +446,7 @@ def _cmd_verify(args) -> int:
             if check["status"] != "PASS":
                 for detail in check["details"]:
                     print(f"      {detail}")
+        print(format_measures(result["measures"]))
         print(result["report"])
     return EXIT_OK if result["overall"] == "PASS" else EXIT_FAIL
 
