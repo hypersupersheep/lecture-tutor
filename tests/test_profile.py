@@ -225,3 +225,52 @@ def test_profile_accepts_documented_members(tmp_cfg):
         "explanation", "pretest", "quiz", "cards", "map"]
     assert set_value("platforms", "{moodle: https://m.example.org, panopto: https://p.example.org}").platforms == {
         "moodle": "https://m.example.org", "panopto": "https://p.example.org"}
+
+
+# ---- the consent date (Task 25) -------------------------------------------------
+
+
+def test_consent_date_is_written_and_removed(tmp_cfg):
+    from datetime import date
+
+    path = config_dir() / "profile.yaml"
+    p = set_value("public_video_audio", "on", i_understand=True)
+    today = date.today().isoformat()
+    assert p.public_video_audio_consent == today
+    assert f"public_video_audio_consent: '{today}'" in path.read_text(encoding="utf-8")
+    assert load_profile().public_video_audio_consent == today
+    p = set_value("public_video_audio", "off")
+    assert p.public_video_audio_consent is None
+    assert "public_video_audio_consent" not in path.read_text(encoding="utf-8")
+    assert load_profile().public_video_audio_consent is None
+
+
+def test_consent_date_is_not_set_directly(tmp_cfg):
+    with pytest.raises(ProfileError) as e:
+        set_value("public_video_audio_consent", "2026-01-01")
+    assert "--i-understand" in str(e.value)
+    assert not (config_dir() / "profile.yaml").exists()
+
+
+def test_consent_date_written_by_hand_is_read(tmp_path):
+    # Unquoted, YAML reads the date as a date; quoted, as text. Both give the same string.
+    for text in ("public_video_audio: on\npublic_video_audio_consent: 2026-11-13\n",
+                 "public_video_audio: on\npublic_video_audio_consent: '2026-11-13'\n"):
+        assert load_profile(write_profile(tmp_path, text)).public_video_audio_consent == "2026-11-13"
+    with pytest.raises(ProfileError) as e:
+        load_profile(write_profile(tmp_path, "public_video_audio_consent: yesterday\n"))
+    assert "public_video_audio_consent" in str(e.value)
+
+
+def test_profile_show_prints_the_consent_key(tmp_cfg, capsys):
+    import json
+    from datetime import date
+
+    from tutor_any_lecture.cli import main
+
+    assert main(["profile", "show"]) == 0
+    assert json.loads(capsys.readouterr().out)["public_video_audio_consent"] is None
+    assert main(["profile", "set", "public_video_audio", "on", "--i-understand"]) == 0
+    capsys.readouterr()
+    assert main(["profile", "show"]) == 0
+    assert json.loads(capsys.readouterr().out)["public_video_audio_consent"] == date.today().isoformat()

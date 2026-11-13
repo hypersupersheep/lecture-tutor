@@ -13,7 +13,7 @@ from tutor_any_lecture.acquire import local as local_module
 from tutor_any_lecture.acquire import url as url_module
 from tutor_any_lecture.acquire.url import NeedsUserFile, _unroll_auto, acquire_url, pick_caption
 from tutor_any_lecture.cli import main
-from tutor_any_lecture.profile import Profile
+from tutor_any_lecture.profile import PUBLIC_VIDEO_AUDIO_NOTICE, ConsentRequired, Profile
 from tutor_any_lecture.transcript import AcquireError, Segment, Transcript, parse_vtt
 from tutor_any_lecture.unit import UnitPaths
 
@@ -101,6 +101,7 @@ class _FakeYDL:
     info_error = None      # an exception the metadata call raises, or None
     captions = {}          # {(kind, key): vtt text}; kind is "cc" or "auto"
     caption_errors = set() # (kind, key) whose download raises DownloadError
+    caption_ext = {}       # {(kind, key): "srt"}: the file extension written, "vtt" when absent
     audio_error = False
     all_opts = []          # the options dict of every instance, in creation order
     last_opts = None       # == all_opts[-1]
@@ -143,7 +144,8 @@ class _FakeYDL:
                     raise yt_dlp.utils.DownloadError(f"ERROR: Unable to download video subtitles for {key!r}")
                 text = cls.captions.get((kind, key))
                 if text is not None:
-                    (folder / f"vid.{key}.vtt").write_text(text, encoding="utf-8", newline="\n")
+                    ext = cls.caption_ext.get((kind, key), "vtt")
+                    (folder / f"vid.{key}.{ext}").write_text(text, encoding="utf-8", newline="\n")
             return 0
         if cls.audio_error:
             raise yt_dlp.utils.DownloadError("Requested format is not available")
@@ -157,11 +159,13 @@ class _FakeYDL:
         return 0
 
 
-def _install(monkeypatch, info_dict, captions=None, audio_error=False, info_error=None, caption_errors=()):
+def _install(monkeypatch, info_dict, captions=None, audio_error=False, info_error=None, caption_errors=(),
+             caption_ext=None):
     class Fake(_FakeYDL):
         pass
 
     Fake.info = info_dict
+    Fake.caption_ext = dict(caption_ext or {})
     Fake.info_error = info_error
     Fake.captions = dict(captions or {})
     Fake.caption_errors = set(caption_errors)
@@ -208,7 +212,8 @@ def fake_asr(monkeypatch):
 
 @pytest.fixture
 def profile_on():
-    return Profile(public_video_audio="on")
+    # The switch is on and the consent date is recorded, as "profile set ... --i-understand" leaves it.
+    return Profile(public_video_audio="on", public_video_audio_consent="2026-11-13")
 
 
 @pytest.fixture
@@ -501,3 +506,132 @@ def test_cli_url_budget_minutes_must_be_positive(tmp_cfg, fake_ydl_no_caps, fake
     assert exc.value.code == 2
     assert fake_ydl_no_caps.all_opts == [] and fake_asr.calls == []
     assert not UnitPaths(unit).transcript.exists()
+
+
+# ---- Task 25: js runtimes, caption choice, capture platforms, consent ---------
+
+
+def make_srt(n, step=10, length=9):
+    """The SRT twin of make_vtt: n cues, cue i from i*step to i*step+length seconds."""
+    def ts(sec):
+        return _ts(sec).replace(".", ",")
+    out = []
+    for i in range(n):
+        out += [str(i + 1), f"{ts(i * step)} --> {ts(i * step + length)}", f"line {i}", ""]
+    return "\n".join(out)
+
+
+def test_ydl_options_name_both_js_runtimes(fake_ydl_no_caps, fake_asr, tmp_path, profile_on):
+    acquire_url("https://y/x", tmp_path, profile_on, False)
+    # metadata, then audio: every call names both runtimes, and each gets its own dict.
+    assert len(fake_ydl_no_caps.all_opts) >= 2
+    assert all(o["js_runtimes"] == {"deno": {}, "node": {}} for o in fake_ydl_no_caps.all_opts)
+    first, second = fake_ydl_no_caps.all_opts[0], fake_ydl_no_caps.all_opts[1]
+    assert first["js_runtimes"] is not second["js_runtimes"]
+
+
+def test_lone_manual_track_is_used_without_a_language(monkeypatch, tmp_path, profile_off):
+    assert pick_caption(info(subs={"fr": [orig()]}), "auto")[:2] == ("cc", "fr")
+    # Not when the video declares its language, nor among two tracks, nor against a stated lecture language.
+    assert pick_caption(info(subs={"fr": [orig()]}, lang="en"), "auto") is None
+    assert pick_caption(info(subs={"fr": [orig()], "de": [orig()]}), "auto") is None
+    assert pick_caption(info(subs={"fr": [orig()]}), "en") is None
+    fake = _install(monkeypatch, info(subs={"fr": [orig()]}), {("cc", "fr"): GOOD_VTT})
+    assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
+    src = read_source(tmp_path)
+    assert (src["acquisition"], src["lecture_language"]) == ("cc", "fr")
+    assert fake.caption_requests == [("cc", "fr")]
+
+
+def test_srt_captions_are_parsed(monkeypatch, tmp_path, profile_off):
+    _install(
+        monkeypatch, info(subs={"en": [orig()]}, lang="en"),
+        {("cc", "en"): make_srt(60)}, caption_ext={("cc", "en"): "srt"},
+    )
+    assert acquire_url("https://y/x", tmp_path, profile_off, False).ok
+    t = Transcript.from_json(UnitPaths(tmp_path).transcript)
+    assert len(t.segments) == 60 and t.segments[-1].text == "line 59" and t.segments[-1].end == 599.0
+    assert read_source(tmp_path)["acquisition"] == "cc"
+
+
+def test_unhealthy_captions_are_kept_and_reported(tmp_cfg, monkeypatch, tmp_path, capsys):
+    # Both tracks fail the health check; the automatic one covers more of the 600 s video.
+    fake = _install(
+        monkeypatch,
+        info(subs={"en": [orig()]}, auto={"en-orig": [orig()]}, lang="en"),
+        {("cc", "en"): SHORT_VTT, ("auto", "en-orig"): make_vtt(30)},
+    )
+    unit = tmp_path / "unit"
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(unit)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    out = json.loads(lines[0])
+    assert out["status"] == "unhealthy" and out["health"]["ok"] is False
+    assert out["health"]["coverage"] == pytest.approx(299 / 600)
+    src = read_source(unit)
+    assert src["acquisition"] == "auto" and src["health"] == out["health"]
+    assert len(Transcript.from_json(UnitPaths(unit).transcript).segments) == 30
+    assert fake.caption_requests == [("cc", "en"), ("auto", "en-orig")] and fake.downloads == []
+
+
+def test_unhealthy_captions_are_kept_on_a_capture_platform(monkeypatch, fake_asr, tmp_path, profile_on):
+    _install(monkeypatch, {**info(subs={"en": [orig()]}, lang="en"), "extractor_key": "Panopto"},
+             {("cc", "en"): SHORT_VTT})
+    h = acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert not h.ok and read_source(tmp_path)["acquisition"] == "cc"
+    assert fake_asr.calls == []
+
+
+CAPTURE_MESSAGE = "this platform's recordings are not downloaded: use its captions, or a file its owner lets you download"
+
+
+@pytest.mark.parametrize("extractor", ["Panopto", "Kaltura", "Zoom"])
+def test_lecture_capture_platform_never_downloads_audio(monkeypatch, fake_asr, tmp_path, profile_on, extractor):
+    assert profile_on.public_video_audio == "on" and profile_on.public_video_audio_consent
+    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": extractor})
+    with pytest.raises(NeedsUserFile) as exc:
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert str(exc.value) == CAPTURE_MESSAGE
+    assert fake.downloads == [] and not any("format" in o for o in fake.all_opts)
+    assert fake_asr.calls == []
+    assert not UnitPaths(tmp_path).transcript.exists()
+
+
+@pytest.mark.parametrize("extractor", ["Mediasite", "Echo360", "YuJa", "Opencast", "KalturaPlaylist", "PanoptoList"])
+def test_every_capture_platform_prefix_is_caught(monkeypatch, fake_asr, tmp_path, profile_on, extractor):
+    fake = _install(monkeypatch, {**info(lang="en"), "extractor_key": extractor})
+    with pytest.raises(NeedsUserFile, match="not downloaded"):
+        acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert fake.downloads == []
+
+
+def test_public_video_site_still_uses_the_audio_rung(fake_ydl_no_caps, fake_asr, tmp_path, profile_on):
+    h = acquire_url("https://y/x", tmp_path, profile_on, False)
+    assert h.ok and len(fake_ydl_no_caps.downloads) == 1 and len(fake_asr.calls) == 1
+    assert read_source(tmp_path)["acquisition"] == "asr"
+
+
+def test_switch_without_consent_date_raises_consent_required(fake_ydl_no_caps, fake_asr, tmp_path):
+    hand_edited = Profile(public_video_audio="on")   # profile.yaml says on; no consent date
+    with pytest.raises(ConsentRequired) as exc:
+        acquire_url("https://y/x", tmp_path, hand_edited, False)
+    assert exc.value.notice == PUBLIC_VIDEO_AUDIO_NOTICE
+    assert fake_ydl_no_caps.downloads == [] and fake_asr.calls == []
+    assert not any("format" in o for o in fake_ydl_no_caps.all_opts)
+    assert not UnitPaths(tmp_path).transcript.exists()
+    # A value that is not a date counts as no consent.
+    with pytest.raises(ConsentRequired):
+        acquire_url("https://y/x", tmp_path, Profile(public_video_audio="on", public_video_audio_consent="yes"), False)
+
+
+def test_cli_url_without_consent_exits_3(tmp_cfg, fake_ydl_no_caps, fake_asr, tmp_path, capsys):
+    from tutor_any_lecture.config import config_dir
+
+    path = config_dir() / "profile.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("public_video_audio: on\n", encoding="utf-8", newline="\n")
+    assert main(["acquire", "url", "--url", "https://y/x", "--unit", str(tmp_path / "unit")]) == 3
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "personal study only" in captured.err and "--i-understand" in captured.err
+    assert fake_ydl_no_caps.downloads == []

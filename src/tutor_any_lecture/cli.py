@@ -176,7 +176,7 @@ def _cmd_acquire_local(args) -> int:
 
 def _cmd_acquire_url(args) -> int:
     from .acquire.url import NeedsUserFile, acquire_url
-    from .profile import load_profile
+    from .profile import ConsentRequired, load_profile
 
     profile = load_profile()
     try:
@@ -186,6 +186,15 @@ def _cmd_acquire_url(args) -> int:
     except NeedsUserFile as e:
         _print_json({"status": "needs_user_file", "message": str(e)})
         return EXIT_BY_ERROR["NeedsUserFile"]
+    except ConsentRequired as e:
+        # public_video_audio was switched on in profile.yaml without accepting the notice.
+        print(e.notice, file=sys.stderr)
+        print(
+            "No audio was downloaded. If you agree, run: "
+            "tutor-any-lecture profile set public_video_audio on --i-understand",
+            file=sys.stderr,
+        )
+        return EXIT_BY_ERROR["ConsentRequired"]
 
 
 def _cmd_acquire_route(args) -> int:
