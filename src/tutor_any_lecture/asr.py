@@ -210,6 +210,10 @@ def resolve_backend(backend: str | None = None, model: str | None = None) -> tup
     package = BACKEND_PACKAGES.get(name)
     # Checked here, in the parent, so a missing package fails before any audio work or child process.
     if package is not None and not _installed(package.replace("-", "_")):
+        # With no backend at all, the asr extra is missing: point at the installer, whose
+        # tool environment pip would not reach. The pip text is only for the other backend's install.
+        if not any(_installed(p.replace("-", "_")) for p in BACKEND_PACKAGES.values()):
+            raise BackendMissing(NO_BACKEND)
         raise BackendMissing(f"ASR backend {name!r} is not installed: pip install {package}")
     if model is None and name in ("mlx", "faster"):
         model = select_model(name)

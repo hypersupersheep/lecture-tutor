@@ -220,17 +220,42 @@ def test_child_exit_without_reply_is_acquire_error(monkeypatch):
         transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="fake")
 
 
-def test_named_backend_not_installed_is_backend_missing(monkeypatch):
+def test_named_backend_without_any_backend_gives_installer_hint(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *args, **kwargs: None)
     started = no_child_process(monkeypatch)
+    for name in ("faster", "mlx"):
+        with pytest.raises(BackendMissing) as exc:
+            asr.resolve_backend(name)
+        assert str(exc.value) == asr.NO_BACKEND
+    with pytest.raises(BackendMissing) as exc:
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    assert str(exc.value) == asr.NO_BACKEND
+    assert started == []
+
+
+_REAL_FIND_SPEC = importlib.util.find_spec
+
+
+def _only_installed(monkeypatch, module):
+    """find_spec finds only ``module`` (any real spec stands in for it)."""
+    monkeypatch.setattr(
+        importlib.util, "find_spec",
+        lambda name, *args, **kwargs: _REAL_FIND_SPEC("json") if name == module else None,
+    )
+
+
+def test_named_backend_not_installed_beside_the_other_is_pip_hint(monkeypatch):
+    started = no_child_process(monkeypatch)
+    _only_installed(monkeypatch, "mlx_whisper")
     with pytest.raises(BackendMissing) as exc:
         asr.resolve_backend("faster")
     assert str(exc.value) == "ASR backend 'faster' is not installed: pip install faster-whisper"
+    with pytest.raises(BackendMissing, match="faster-whisper"):
+        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
+    _only_installed(monkeypatch, "faster_whisper")
     with pytest.raises(BackendMissing) as exc:
         asr.resolve_backend("mlx")
     assert str(exc.value) == "ASR backend 'mlx' is not installed: pip install mlx-whisper"
-    with pytest.raises(BackendMissing, match="faster-whisper"):
-        transcribe(Path("unused.wav"), None, "", budget_minutes=1, backend="faster")
     assert started == []
 
 
