@@ -275,6 +275,23 @@ def test_invented_inline_quote_fails_quote_source(tmp_path):
     ]
 
 
+@pytest.mark.parametrize("text", [
+    '\n\n- The lecturer warned that "banks always round the rate down" (slide 2, 2:40).\n',
+    '\n\n> [!WARNING] Rounding\n> The lecturer warned that "banks always round the rate down".\n'
+    "> (slide 2, 2:40)\n",
+    "\n\n| Claim | Where |\n|---|---|\n"
+    '| "banks always round the rate down" | (slide 2, 2:40) |\n',
+], ids=["bullet", "callout", "table"])
+def test_invented_inline_quote_outside_paragraphs_fails_quote_source(tmp_path, text):
+    u = copy_fixture("ok", tmp_path)
+    append_to_note(u, text)
+    r = run_verify(u)
+    assert entry(r, "citations")["status"] == "FAIL"
+    assert quote_source_details(r) == [
+        "quote 'banks always round the rate down' cited (slide 2, 2:40) is not in the transcript or the slides"
+    ]
+
+
 def test_quote_far_from_cited_time_warns(tmp_path):
     u = copy_fixture("ok", tmp_path)
     add_segment(u, 600.0, 630.0, "Some banks print the effective annual rate next to every advertised APR.")

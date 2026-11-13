@@ -137,11 +137,15 @@ def _marker_problems(lines: list[str], line_numbers: list[int]) -> list[str]:
 # ---------------------------------------------------------------- text helpers
 
 
-def _paragraphs(lines: list[str]) -> list[list[str]]:
-    """Port of the v1 note_stats.sh splitter: $$ blocks join the current paragraph;
-    headings, tables, blockquotes, list items and rules end one and belong to none."""
-    paras: list[list[str]] = []
-    cur: list[str] = []
+def _split(lines: list[str]) -> tuple[list[list[int]], list[int]]:
+    """Port of the v1 note_stats.sh splitter, by line index: $$ blocks join the current paragraph;
+    headings, tables, blockquotes, list items and rules end one and belong to none.
+
+    Returns the paragraphs and the non-blank lines that belong to none.
+    """
+    paras: list[list[int]] = []
+    breaks: list[int] = []
+    cur: list[int] = []
     in_math = False
 
     def flush() -> None:
@@ -150,22 +154,27 @@ def _paragraphs(lines: list[str]) -> list[list[str]]:
             paras.append(cur)
             cur = []
 
-    for line in lines:
+    for i, line in enumerate(lines):
         s = line.strip()
         if s.startswith("$$"):
             if s == "$$":
                 in_math = not in_math
-            cur.append(line)
+            cur.append(i)
         elif in_math:
-            cur.append(line)
+            cur.append(i)
         elif not s:
             flush()
         elif PARA_BREAK_RE.match(line):
             flush()
+            breaks.append(i)
         else:
-            cur.append(line)
+            cur.append(i)
     flush()
-    return paras
+    return paras, breaks
+
+
+def _paragraphs(lines: list[str]) -> list[list[str]]:
+    return [[lines[i] for i in para] for para in _split(lines)[0]]
 
 
 def _is_quote_line(line: str) -> bool:
@@ -173,9 +182,12 @@ def _is_quote_line(line: str) -> bool:
 
 
 def _inline_quotes(line: str) -> list[str]:
+    """Quoted spans of 15 or more characters on one line that is not a '>' line."""
+    return [] if _is_quote_line(line) else _quoted_spans(line)
+
+
+def _quoted_spans(line: str) -> list[str]:
     """Quoted spans of 15 or more characters on one line, marks paired left to right."""
-    if _is_quote_line(line):
-        return []
     out = []
     for m in INLINE_QUOTE_RE.finditer(line):
         inner = next(g for g in m.groups() if g is not None)
@@ -210,24 +222,39 @@ def cited_quotes(md: str) -> list[tuple[str, list[Citation]]]:
     """The quotes of the lecture prose that carry a citation, each with the citations that cover it.
 
     Read as check_note reads them: code and the marker sections are left out. A blockquote
-    that is not a callout is cited inside or on its next non-empty line; an inline quote of
-    15 or more characters is cited by its paragraph. Citation groups are removed from the
-    quote text. Blockquotes come first, then inline quotes, each in document order.
+    that is not a callout is cited inside or on its next non-empty line. An inline quote of
+    15 or more characters is cited by its paragraph; on a line outside paragraphs (a list
+    item, a table row, a heading) by that line; inside a callout by the whole callout.
+    Citation groups are removed from the quote text. Blockquotes come first, then inline
+    quotes, each in document order.
     """
     p_lines = strip_marker_sections(strip_code(md)).split("\n")
     out: list[tuple[str, list[Citation]]] = []
+    inline: list[tuple[int, str, list[Citation]]] = []  # (line index, quote, citations)
     for a, b in _blockquotes(p_lines):
+        block = "\n".join(p_lines[a:b])
         if CALLOUT_START_RE.match(p_lines[a]):
+            cits = parse(block)
+            if cits:
+                inline.extend((i, q, cits) for i in range(a, b)
+                              for q in _quoted_spans(BLOCKQUOTE_PREFIX_RE.sub("", p_lines[i])))
             continue
         after = next((x for x in p_lines[b:] if x.strip()), "")
-        cits = parse("\n".join(p_lines[a:b])) or parse(after)
+        cits = parse(block) or parse(after)
         if cits:
             text = " ".join(BLOCKQUOTE_PREFIX_RE.sub("", line) for line in p_lines[a:b])
             out.append((_without_citations(text), cits))
-    for para in _paragraphs(p_lines):
-        cits = parse("\n".join(para))
+    paras, breaks = _split(p_lines)
+    for para in paras:
+        cits = parse("\n".join(p_lines[i] for i in para))
         if cits:
-            out.extend((_without_citations(q), cits) for line in para for q in _inline_quotes(line))
+            inline.extend((i, q, cits) for i in para for q in _inline_quotes(p_lines[i]))
+    for i in breaks:
+        cits = parse(p_lines[i])
+        if cits:  # '>' lines give no inline quotes here: blockquotes and callouts are read above
+            inline.extend((i, q, cits) for q in _inline_quotes(p_lines[i]))
+    inline.sort(key=lambda t: t[0])  # stable: quotes on one line keep their order
+    out.extend((_without_citations(q), cits) for _, q, cits in inline)
     return out
 
 
