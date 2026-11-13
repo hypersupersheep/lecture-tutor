@@ -1,116 +1,105 @@
 ---
-name: lecture-tutor
-description: Use when the user asks for a lecture recording to be explained, turned into study notes, a self-test, or an audio lesson (e.g. "讲一下 COURSE101 第 4 周", "把这节课的录像整理成讲解", "做个语音版"), or when an agent must locate a Panopto / Moodle recording and read its transcript.
+name: tutor-any-lecture
+description: Use when the user wants to learn from a lecture, recorded class, talk or course video, or from slides alone, and wants explanation notes, a pretest, a quiz, Anki cards or an overview map made from it (e.g. "teach me this lecture", "quiz me on week 4", "把这节课讲给我"). Works with local files, YouTube/Bilibili links, Panopto/Moodle pages, transcripts and PDFs.
 ---
 
-# lecture-tutor
+# Tutor Any Lecture
 
-## Overview
+Turn one lecture (a recording, a link, a transcript or a slide deck) into a cited explanation note, a pretest, a quiz bank, Anki cards and an overview map, checked by a gate before delivery. The `tutor-any-lecture` command does the deterministic work: acquisition, transcription, checks and rendering. You write prose and JSON, grade answers and call the command. Pass every command as an argument list, never as one joined shell string.
 
-把一节课(Panopto 录像 + 课件)变成一份**忠于老师原话、段落为主、标题很少**的中文讲解笔记,附自测题,按需做语音版。核心原则:**正文只写老师讲过的,我加的和存疑的分开标;写出来的是文章,不是提纲。** 已在金融、随机过程、统计机器学习几门课的真实录像上跑通。
+## Step 0: Check the tool
 
-讲解笔记和预习笔记是两种文体:预习笔记要让人不上课也能高效自学,所以体系化、覆盖全;讲解笔记跟随课堂节奏,抓老师的要点和精辟之处。本 skill 只产出后者——不把讲解写成教科书,不按课件重排老师的顺序去"补全体系"。
+- Run `tutor-any-lecture doctor --json`. Ready (`"ready": true`, exit 0): continue. Not ready (exit 3): show the failing checks' `fix` lines and offer to apply them.
+- If the command is not found, read the CLI's absolute path from `${XDG_CONFIG_HOME:-$HOME/.config}/tutor-any-lecture/cli-path` (macOS, Linux) or `%APPDATA%\tutor-any-lecture\cli-path` (Windows), and use that path in place of `tutor-any-lecture` for every call in this session.
+- If neither works, offer to run the installer that ships in this skill's folder: `scripts/install.sh` (macOS, Linux; for example `bash <this skill's folder>/scripts/install.sh --yes`) or `scripts/install.ps1` (Windows; `pwsh -File <this skill's folder>\scripts\install.ps1 -Yes`). Run it only after the user agrees. Exit 3 from the installer means one of two things. If its last stdout line is the doctor JSON (`"ready": false`), show the failing checks' `fix` lines, as for `doctor --json`. Otherwise uv and Python 3.10+ are missing: show the instructions it printed on stderr.
+- On first use (the profile's workspace folder is missing or holds no unit; a unit is a file matching `<workspace>/courses/*/*/plan.json`), after doctor is ready, run `tutor-any-lecture selftest` once. Continue on exit 0; otherwise stop and report its output.
 
-## When to use
+## Understand the request
 
-- 用户要"讲一下 / 整理 / 复盘"某门课的某节课、某个录像;要自测题;要语音版。
-- 另一个 agent 需要找到某节课的录像并拿到转写。
-- 不用于:交作业、答 quiz、发帖、写邮件;处理用户无权访问的录像。
+Infer what the user wants (which lecture, which outputs, how deep) and the settings from the conversation. On the first run ask no questions; use the defaults. Settings live in `profile.yaml` in the config dir (the folder that holds `cli-path`); `tutor-any-lecture profile show` prints them. Value sets: `goal` deep|exam|quick; `terms` bilingual|note|original; `level` auto|beginner|intermediate|advanced; `output_target` markdown|obsidian|notion; `downloads` ask|allow; `public_video_audio` on|off.
+After delivery, invite the user to set them with `tutor-any-lecture profile set KEY VALUE`; details in [profile](references/profile.md).
 
-**在 Cowork 里运行时,开工前先读 [references/cowork.md](references/cowork.md)**:文件夹要先连接,shell 在 Linux 虚拟机里,语音合成、手写版和总览图要回 Claude Code 做。在 Claude Code 里不用看。
+## Acquire
 
-## 配置(第一次用之前)
+1. Pick the unit folder first: `<workspace>/courses/<course>/<unit>/`, and remember both folder names. They become `course` and `unit` in plan.json, in `progress/<course>.jsonl` and in the card GUIDs. Take them from the user's wording; keep them filesystem-safe (no path separators, no `..`, none of `/ \ : * ? " < > |`, no leading or trailing space, no trailing dot: write `CS 101 - Intro`, not `CS 101: Intro`); reuse them unchanged for later units of the same course.
+2. For a folder of materials, run `tutor-any-lecture acquire route --folder <materials> --unit <unit folder>`. It only plans. For each entry of `questions`, ask the learner its `text` and have them pick one of its `candidates`; for the pick `candidates[i]`, run that question's `argv[i]` as well. Run everything in this order: transcript import or panopto, then `tutor-any-lecture slides --pdf`, then `tutor-any-lecture acquire local`, so a `media` answer runs after the `slides --pdf` step. Run each argv as a list, never joined into a shell string (with the cli-path in place of its first element when needed), and skip steps with `runnable: false`.
+3. Otherwise pick the adapter for the source:
+   - a local video or audio file: [local](references/adapters/local.md), `tutor-any-lecture acquire local --file F --unit DIR`;
+   - a public video link: [url](references/adapters/url.md), `tutor-any-lecture acquire url --url U --unit DIR`;
+   - a transcript or caption file: [import](references/adapters/import.md), `tutor-any-lecture acquire import --file F --unit DIR`;
+   - a Panopto recording: [panopto](references/adapters/panopto.md), `tutor-any-lecture acquire panopto --extract JSON --unit DIR`;
+   - slides on a Moodle course page: [moodle](references/adapters/moodle.md).
+   Panopto and Moodle pages need an agent with browser tools; see the agent notes under References.
+4. When there is a PDF, run `tutor-any-lecture slides --pdf F --unit DIR` before any transcription (the ASR prompt uses its terms). Slides alone make a slides-only unit: its note cites slides only, never times.
+5. Acquisition commands print one JSON object. On exit 1 read `status`: for `unhealthy`, show the health numbers and tell the learner before planning on that transcript; for `error`, show `message` to the learner: the source had no timed text, the input could not be read, a tool failed, the video could not be reached, or the URL is a playlist (one video per unit). Exit 3 needs the user: a file, consent, a bigger budget, or `--force` to overwrite.
+6. With a transcript, run `tutor-any-lecture slides suspects --unit DIR`. Suspects feed the errata section; the transcript is never edited.
 
-读 `~/.config/lecture-tutor/config.yaml`。没有这个文件就停下,请用户把本 skill 目录下的 `config.example.yaml` 复制过去并填好(放在 skill 目录外面,更新 skill 时不会被覆盖):
+## Read and plan
 
-| 字段 | 含义 |
-|---|---|
-| `course_root` | 课程资料根目录;每门课一个文件夹,课件按周放在 `<folder>/weekN/` |
-| `vault_root` | Obsidian vault 里放课程笔记的文件夹;不用 Obsidian 就留空,只存课程文件夹 |
-| `python` | 装好 `requirements.txt` 的 Python 解释器 |
-| `moodle_url`、`panopto_url` | 学校 Moodle 和 Panopto 的地址 |
-| `courses` | 每门课的 `code`、`moodle_id`、`folder`、`numbering`:`week` 是一周几节合成一份(编号 `W04`),`session` 是每节一份(编号 `S01`) |
+Read the transcript, slides, chapters and suspects, then write plan.json in the unit folder (its shape, `sections` and the concept `type` values are in [teaching](references/teaching.md)). Resolve every value to a concrete one:
+- `note_language`: the profile value, or the language of the conversation when the profile says auto;
+- `lecture_language`: the profile value, or, when auto, source.json's `lecture_language`, or the language you read in the transcript or slides;
+- both as lowercase primary subtags ("en", "zh", "ja"), never "auto";
+- `goal` and `outputs` from the profile; `output_target` from the profile, with notion written as markdown;
+- `duration_s` from source.json's `duration` (null when unknown);
+- `course` and `unit`: the two folder names from Acquire; `tracked`: 5 concept ids, or all when there are fewer than 5.
 
-下文的 `<course_root>`、`<vault_root>`、`<python>`、`<课次>` 都按这里的值替换。
+## Write
 
-## 流程
+Follow [writing](references/writing.md) (the note contract) and [teaching](references/teaching.md) (items, cards, map; items.json layout). Order of work:
+1. write items.json, then run `tutor-any-lecture items assign --unit DIR`;
+2. write the pretest section of explanation.md from `tutor-any-lecture items next --unit DIR --phase pre`;
+3. write the rest of the note;
+4. write cards.json and map.json for the outputs listed in plan.json.
 
-1. **定位课程**:课程代码 → `config.yaml` 里该科的 `moodle_id` 和 `folder`。课件在 `<course_root>/<folder>/weekN/`,这些文件只读。`weekN/` 里没有这节课的 slides 或讲义时**不要自己去 Moodle 下**,告诉用户先把课件放进去。
-2. **找录像**:浏览器工具开 Moodle 课程页,找录像入口(LTI 活动)或 Panopto 区块,进 viewer。遇到登录页就停下请用户登录,不输密码或 MFA。细节、选择器、各种异常见 [references/panopto.md](references/panopto.md)。
-3. **取转写**:在 viewer 页用 javascript_tool 执行 `scripts/panopto_extract.js`(只读 DOM),把返回值存成 JSON,再跑 `<python> -I scripts/panopto_to_files.py <json> <workdir>` 得到 `transcript.raw.txt`、`contents.txt`、`meta.txt`。页面没有转写时,先问用户要不要下载录像本地转写(mlx-whisper),每次都问。
-4. **读材料**:全文读转写、课件文本(pdfplumber)、课程信息。整理四样东西再动笔:老师的话题切换点(参考 `contents.txt`)、课件逐页清单、转写误听清单(对照课件)、课件里没讲到的页。
-5. **写讲解**:按 [references/writing-rules.md](references/writing-rules.md) 的契约写。先把要引用的老师原话抽到工作目录的 `quotes.md`(带出处),再围绕引文写正文;引文是证据,讲解是主体。
-6. **自检**:`bash scripts/note_stats.sh <讲解.md>` 看形态红线;按课件逐页回查每个定义、公式、例子落在笔记哪里;归于老师的每句话都要有 `(slide N)` 或 `(mm:ss)`。
-7. **交付(按周存放)**:
-   - **先定周次 N**:就是这节课课件所在的 `weekN/`。
-   - **结构**:预习和基于录像、课后复习的产出分开,图不和笔记混放。
-     ```
-     Obsidian:<vault_root>/<folder>/weekN/
-     ├── 预习/                              预习笔记,不是本 skill 的产出
-     ├── lecture_wN/                        基于录像和课后复习的成品都放这里
-     │   ├── <课次>-讲解-<英文主题>.md
-     │   ├── <课次>-习题.md                 习题讲解单独成文时才有
-     │   ├── <课次>-语音.m4a
-     │   ├── <课次>-手写版.pdf
-     │   ├── <课次>-总览图.excalidraw.md
-     │   └── <课次>-思维导图.excalidraw.md
-     └── 截图/                              笔记里嵌入的所有图
+A command that finds plan.json, items.json, assignment.json, cards.json or map.json malformed exits 1 with one stderr line that starts with the file's name: fix that file, then rerun the command.
 
-     课程文件夹:<course_root>/<folder>/weekN/笔记/
-     ├── 预习/
-     ├── lecture_wN/                        <课次>_讲解.md、_习题.md、_语音.m4a、_手写版.pdf、_总览图.png、_思维导图.png
-     └── 源文件/                            转写、章节表、meta、语音稿、标记稿、Mermaid、脚本、截图对照表
-     ```
-   - **命名**:
-     - 文件名不带课程代码,否则太长;要分享时再加。
-     - `<课次>` 按 `numbering` 写成 `W04` 或 `S01`。这个前缀要留:标签页和反向链接只显示文件名,没有它分不清是哪一周。英文主题取老师这节课的标题。
-     - 老师讲题的视频整理成的笔记叫"习题",m4a 叫"语音"。
-     - 截图按内容命名,如 `Theorem2.2-1-陈述与唯一性.jpg`、`Ex1.10-2-接受拒绝算法.jpg`,同一主题多张时用序号排好。不带课程和周次;来源和时间戳记进 `源文件/<课次>_截图对照.tsv`。
-     - 新文件写入前全库查重。跨课重名(两门课都有 S01)时,链接写从库根开始的完整路径并加别名,如 `[[Courses/course101/week1/lecture_w1/S01-总览图.excalidraw|总览图]]`。
-   - 讲解存两处,内容一致。`weekN/` 根目录只放课件,生成物一律进 `笔记/`。原始转写、章节表、meta 的文件名:`<课次>_transcript_panopto_raw.txt`、`<课次>_panopto_chapters.txt`、`<课次>_panopto_meta.txt`。
-   - 把成品发给用户,等验收再定稿。
-8. **手写复习版 + 总览图**(讲解定稿后默认做):**REQUIRED SUB-SKILL:** handwritten-notes-pdf 和 excalidraw-concept-map。
-   - 取材:都从讲解笔记来。源文件写进 `weekN/笔记/源文件/`:`<课次>_手写版.md`(标记语法)和 `<课次>_总览图.mmd`(Mermaid)。渲染出的 `<课次>_总览图.excalidraw.md` 也放这里。
-   - 存放:按第 7 步的结构。Obsidian `lecture_wN/` 放 `<课次>-手写版.pdf`、`<课次>-总览图.excalidraw.md`;课程文件夹 `笔记/lecture_wN/` 放 `<课次>_手写版.pdf`、`<课次>_总览图.png`。
-   - 嵌入:两份讲解(Obsidian 和课程文件夹)都加,保持两份一致。位置在开头说明块(和音频)之后、`## 目录` 之前:
-     ```
-     手写复习版(网格纸 PDF,可导入 Notability):[[<课次>-手写版.pdf]]
+## Gate
 
-     ![[<课次>-总览图.excalidraw]]
-     ```
-   - 思维导图(可选):和总览图分工,总览图讲讲课的逻辑顺序,思维导图讲概念的层级和关系。节点多、要画跨列关系线时自己算坐标,不走 Mermaid 自动排版。每个节点的链接写进 `.excalidraw.md` 的 `## Element Links`(在 `%%` 之外才进反向链接),形如 `<8位id>: [[文件名#小节]]`。
-   - 把 PDF 和总览图 PNG 发给用户。
-9. **语音版**(用户要时):按 [references/audio-script-rules.md](references/audio-script-rules.md) 先写 `weekN/笔记/源文件/<课次>_语音稿.md`,再 `<python> scripts/tts_synthesize.py <语音稿> <输出.m4a> --voice Serena --workdir <临时目录>/tts` 本地合成(Qwen3-TTS),按该文件 §4 用 mlx-whisper 回转抽查。m4a 放 `weekN/笔记/lecture_wN/<课次>_语音.m4a`,再复制一份到 Obsidian 的 `lecture_wN/`,命名为 `<课次>-语音.m4a`,在笔记里用 `![[<课次>-语音.m4a]]` 嵌入。
+Run `tutor-any-lecture cards export --unit DIR` when "cards" is in plan.outputs and `tutor-any-lecture map mermaid --unit DIR` when "map" is; then `tutor-any-lecture verify --unit DIR`. Fix and rerun until overall is PASS (exit 0). Report the `report` line exactly as printed; never claim a visual review that did not happen. Exit codes and check names: [gate](references/gate.md).
 
-## 铁律
+## Deliver and pretest
 
-- 不输密码/MFA,不抓 token 或 cookie;Moodle 只读;Panopto 页面只读 DOM,不点 Edit、Cuts、Streams、Download 之类按钮。
-- 下载录像文件每次先问用户;老师关了下载的录像不绕过去抓流。
-- 录像、转写、笔记只供用户个人学习,不外传。
-- Python 用 `config.yaml` 里的解释器;读取从网上拿到的文件时加 `-I`。
-- 课程文件夹里的文件只增不删。成品放 `weekN/笔记/lecture_wN/`,原始材料放 `weekN/笔记/源文件/`;`weekN/` 根目录留给课件。
+Deliver the files; where they go per `output_target` is in [markdown](references/output-targets/markdown.md) and [obsidian](references/output-targets/obsidian.md). Then, before the learner reads the note, run the pretest in chat: one question at a time, as in teaching.md, logging each answer with `tutor-any-lecture progress log --unit DIR --item ID --phase pre --score S --confidence K`. Say that a low pretest score is normal.
 
-## Quick reference
+## Quiz mode and reviews
 
-| 环节 | 用什么 |
-|---|---|
-| 课程代码 → Moodle id、文件夹 | `config.yaml` |
-| 录像入口 | Moodle 课程页的 LTI 活动或 Panopto 区块 → `<panopto_url>/Panopto/Pages/Viewer.aspx?id=…` |
-| 转写、章节、AI 摘要、讲课日期 | `scripts/panopto_extract.js` → `scripts/panopto_to_files.py` |
-| 课件文本 | `pdfplumber` |
-| 笔记形态自检 | `scripts/note_stats.sh` |
-| 写作契约 | `references/writing-rules.md` |
-| 语音稿与合成 | `references/audio-script-rules.md` |
-| 手写复习版 PDF(网格纸) | handwritten-notes-pdf skill |
-| 手绘总览图(Excalidraw) | excalidraw-concept-map skill |
-| 在 Cowork 里运行 | `references/cowork.md` |
+- `tutor-any-lecture items next --unit DIR --phase P` gives the items to ask, with P in pre|post|d1|d7|d21 (`practice` is an argparse error there). Practice items come from the `practice` list of items.json, or from `tutor-any-lecture items get --unit DIR --id ID`, and are logged with `--phase practice`.
+- Grade each answer, then run `tutor-any-lecture progress log --unit DIR --item ID --phase P --score S --confidence K` (no `--course`; course and unit come from plan.json).
+- "Review" starts from `tutor-any-lecture progress due --course C`. For a due entry, DIR is `<workspace>/courses/<course>/<entry.unit>`; if that folder is missing, look for the plan.json under the workspace whose `course` and `unit` match; otherwise ask the learner.
+- `tutor-any-lecture progress render --course C` writes the progress page; `tutor-any-lecture cards add-misses --unit DIR` adds miss cards after a quiz.
 
-## Common mistakes
+Protocol details (grading, confidence, D and E variants, interleaving): [teaching](references/teaching.md).
 
-对照实验(同样材料、不给规则)里出现过的毛病,写之前先看一遍:
+## Optional extras
 
-- 写成提纲:标题带编号(1.1、3.4)、每段开头一个加粗引导词、推理过程用列表承载。契约里规定了每一节由什么组成,照契约写。
-- 改老师的记号(把本金 $P$ 改成 $F$ 以免和价格 $P(t,T)$ 冲突)。记号跟课件走;冲突写进存疑框,正文不改。
-- 加老师没讲的板块:"速览""面试向问答""下周待办"。课件里没讲到的页只在"没讲到的部分"一节提一句。
-- 老师只点名了一种推导,笔记补了三种。补老师那一种,放在补充框里。
-- 转写误听照抄("40 years"、"80%")。数字和专有名词一律对照课件,误听进纠错表。
+Extras are optional and never part of the gate.
+- Audio lesson, Apple Silicon macOS only in M1: follow the [audio script rules](references/audio-script-rules.md) and run `scripts/tts_synthesize.py` directly with any Python that has `mlx-audio` and numpy installed, with ffmpeg and ffprobe on PATH; `<python>` in that file means that interpreter. If mlx-audio is missing, tell the user to install it (`pip install mlx-audio`); never install it silently.
+- Review sheet and hand-drawn overview map: the separate companion skills handwritten-notes-pdf and excalidraw-concept-map.
+
+## Guardrails
+
+- Never type, store or ask for passwords. Use the browser's existing login; at a login page, stop and ask the user to sign in.
+- Never read browser cookies.
+- Download media only when the profile allows it.
+- Never capture streams of recordings whose downloads are disabled, and never circumvent DRM.
+- Every claim you attribute to the lecturer carries a (slide N) or (mm:ss) citation.
+- Read-only on every platform: no submissions, posts or bookings. Course material stays local, for personal study.
+
+## References
+
+- [writing](references/writing.md): the note contract: citations, marker sections, length, structure.
+- [teaching](references/teaching.md): plan.json and items.json shapes, variants, pretest, quiz protocol, cards, map.
+- [gate](references/gate.md): the nine checks, statuses, exit codes, acquisition JSON.
+- [profile](references/profile.md): settings, value sets, the consent gate, plan resolution.
+- [local](references/adapters/local.md): local video or audio, local ASR.
+- [url](references/adapters/url.md): public video links, captions first.
+- [import](references/adapters/import.md): SRT, VTT, JSON and timestamped text transcripts.
+- [panopto](references/adapters/panopto.md): Panopto recordings through the browser.
+- [moodle](references/adapters/moodle.md): slides from a Moodle course page.
+- [TEMPLATE](references/adapters/TEMPLATE.md): the headings for a new platform adapter.
+- [claude-code](references/agents/claude-code.md): browser tools and large script results in Claude Code.
+- [codex](references/agents/codex.md): Codex install path and running without browser tools.
+- [generic](references/agents/generic.md): other agents, agents without browser tools, Claude.ai uploads.
+- [markdown](references/output-targets/markdown.md): the unit folder layout and Markdown conventions.
+- [obsidian](references/output-targets/obsidian.md): Obsidian links, highlights and the vault copy.
