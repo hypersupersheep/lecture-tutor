@@ -15,7 +15,7 @@ GUARDRAILS = [
     "Never type, store or ask for passwords.",
     "Never read browser cookies.",
     "Download media only when the profile allows it.",
-    "Never capture streams of recordings whose downloads are disabled, and never circumvent DRM.",
+    "Never circumvent DRM, and never use the learner's passwords or cookies. Downloading audio is the learner's choice and responsibility, through the public_video_audio switch.",
     "Every claim you attribute to the lecturer carries a (slide N) or (mm:ss) citation.",
 ]
 CARD_NOTICE = (
@@ -268,3 +268,9 @@ def test_docs_leave_the_audio_choice_to_the_learner():
     assert "responsibility" in url_doc
     for text in (url_doc, read(SKILL)):
         assert "not downloaded" not in text and "never downloaded" not in text
+
+
+def test_guardrail_leaves_audio_to_the_learner():
+    t = read(SKILL)
+    assert "never use the learner's passwords or cookies" in t
+    assert "downloads are disabled" not in t

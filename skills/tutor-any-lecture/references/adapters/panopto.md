@@ -50,7 +50,7 @@ The viewer also has edit, Cuts, Streams, Download, Share and Discussion panels a
 
 ## Downloads offered?
 
-Only when the recording's owner enabled Download. Use it only when the profile's `downloads` allows it and the learner agrees, then transcribe the file with [local](local.md). If Download is greyed out or missing, tell the learner: never capture the stream yourself, never circumvent DRM.
+Only when the recording's owner enabled Download. Use it only when the profile's `downloads` allows it and the learner agrees, then transcribe the file with [local](local.md). If Download is greyed out or missing, tell the learner what this adapter does: it reads the captions the page shows, and does not download the recording. DRM is never circumvented.
 
 The audio switch (`public_video_audio`, see [url](url.md)) is the learner's decision: once they have switched it on, downloading a recording's audio through `acquire url` is their choice and their responsibility, and the tool does not check the platform's terms. The tool never uses the learner's login, so a recording behind a sign-in is not reachable that way: there the learner uses the captions above, or a file they downloaded themselves.
 
