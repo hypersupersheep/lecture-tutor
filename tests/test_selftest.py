@@ -1,6 +1,8 @@
 import json
+import os
 import re
-import tempfile
+import shutil
+from pathlib import Path
 from importlib import resources
 
 from tutor_any_lecture.cli import main
@@ -81,6 +83,15 @@ def test_sample_effective_rate_has_a_numeric_variant():
     assert [a for a in answers if re.search(r"\d+(?:\.\d+)?%", a)] != []
 
 
+def test_sample_variants_are_parallel():
+    """A, B and C of each concept share a kind, and all ask for a number or none does."""
+    for cid, variants in sample_json("items.json")["tracked"].items():
+        assert len({v["kind"] for v in variants.values()}) == 1, cid
+        # a digit in the answer once its citations are removed: the item asks for a number
+        numeric = {bool(re.search(r"\d", re.sub(r"\([^)]*\)", "", v["answer"]))) for v in variants.values()}
+        assert len(numeric) == 1, cid
+
+
 # ---- failure paths and cleanup ----
 
 STEP_NAMES = ["import", "slides", "items assign", "cards export", "map mermaid", "verify"]
@@ -121,13 +132,25 @@ def test_selftest_removes_its_folder_after_a_failure(monkeypatch):
 
 
 def test_selftest_ignores_cleanup_errors(monkeypatch):
-    real = tempfile.TemporaryDirectory
-    kwargs_seen: list[dict] = []
+    """The temporary folder cannot be removed: run_selftest still returns its result."""
+    real_unlink = os.unlink
+    refused: list[str] = []
 
-    def spy(*args, **kwargs):
-        kwargs_seen.append(kwargs)
-        return real(*args, **kwargs)
+    def unlink(path, *args, **kwargs):
+        # verify.json, the last file the run writes, can never be removed.
+        if os.path.basename(os.fspath(path)) == "verify.json":
+            refused.append(os.fspath(path))
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_unlink(path, *args, **kwargs)
 
-    monkeypatch.setattr("tutor_any_lecture.selftest.tempfile.TemporaryDirectory", spy)
-    assert run_selftest()["ok"] is True
-    assert [k.get("ignore_cleanup_errors") for k in kwargs_seen] == [True]
+    monkeypatch.setattr(os, "unlink", unlink)
+    try:
+        result = run_selftest()
+    finally:
+        monkeypatch.undo()
+    # The cleanup really failed: the file is still on disk, in the system temp folder.
+    leftovers = [Path(p) for p in refused if os.path.isabs(p)]
+    assert leftovers and leftovers[0].exists()
+    shutil.rmtree(leftovers[0].parent.parent)
+    assert result["ok"] is True
+    assert [s["name"] for s in result["steps"]] == STEP_NAMES

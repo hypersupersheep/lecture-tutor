@@ -3,19 +3,19 @@
 ## Pretest
 
 <!-- tal:pretest -->
-1. What separates compound interest from simple interest?
+1. Someone invests 200 at five percent per year and leaves the interest in the account; how much do they hold two years later?
 
 <details><summary>Answer</summary>
 
-Compound interest is paid on past interest as well as on the deposit.
+220.50
 
 </details>
 
-2. What is an effective annual rate?
+2. Interest of half a percent is added to a loan each month; is the borrower's effective yearly cost above or below six percent?
 
 <details><summary>Answer</summary>
 
-The rate that, paid once a year, gives the same growth as the quoted schedule.
+Above, because each month's charge is itself charged later.
 
 </details>
 <!-- /tal:pretest -->

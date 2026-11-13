@@ -274,3 +274,19 @@ def test_profile_show_prints_the_consent_key(tmp_cfg, capsys):
     capsys.readouterr()
     assert main(["profile", "show"]) == 0
     assert json.loads(capsys.readouterr().out)["public_video_audio_consent"] == date.today().isoformat()
+
+
+# ---- Task 28: explanation is always an output ---------------------------------
+
+
+def test_outputs_must_include_explanation(tmp_cfg, tmp_path):
+    with pytest.raises(ProfileError) as e:
+        set_value("outputs", "[quiz, cards]")
+    assert "explanation" in str(e.value)
+    assert not (config_dir() / "profile.yaml").exists()
+    with pytest.raises(ProfileError) as e:
+        load_profile(write_profile(tmp_path, "outputs: [pretest, quiz]\n"))
+    assert "outputs" in str(e.value) and "explanation" in str(e.value)
+    with pytest.raises(ProfileError):
+        load_profile(write_profile(tmp_path, "outputs: []\n"))
+    assert load_profile(write_profile(tmp_path, "outputs: [explanation]\n")).outputs == ["explanation"]

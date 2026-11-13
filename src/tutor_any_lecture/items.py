@@ -190,7 +190,9 @@ def validate_items(
     pretest = _sentences(pretest_text)
     results: list[CheckResult] = []
 
-    # variants: every tracked concept of the plan has at least A, B and C.
+    # variants: every tracked concept of the plan has at least A, B and C, and the
+    # variants of one concept share a kind: they are asked at random in pre, post and d7,
+    # so unequal variants would distort the measured gain.
     offences = []
     for cid in plan.tracked:
         if cid not in items["tracked"]:
@@ -199,6 +201,10 @@ def validate_items(
         lacking = [x for x in ("A", "B", "C") if x not in items["tracked"][cid]]
         if lacking:
             offences.append(f"{cid}: missing variant(s) {', '.join(lacking)}")
+    for cid, variants in items["tracked"].items():
+        if len({it.kind for it in variants.values()}) > 1:
+            kinds = ", ".join(f"{letter} {variants[letter].kind}" for letter in sorted(variants))
+            offences.append(f"{cid}: variants differ in kind: {kinds}")
     results.append(_result("variants", "FAIL", offences))
 
     # apply_share: at least half of all items are apply/transfer-type.

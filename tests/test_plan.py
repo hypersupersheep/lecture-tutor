@@ -172,3 +172,14 @@ def test_safe_name_rejects_windows_device_names(value, ok):
     else:
         with pytest.raises(PlanError):
             safe_name(value, "unit")
+
+
+# ---- Task 28: explanation is always an output ---------------------------------
+
+
+def test_plan_outputs_must_include_explanation(tmp_path):
+    path = write_plan(tmp_path / "no-explanation", outputs=["pretest", "quiz", "cards", "map"])
+    with pytest.raises(PlanError) as e:
+        load_plan(path)
+    assert str(e.value).startswith("plan.json:") and "explanation" in str(e.value)
+    assert load_plan(write_plan(tmp_path / "only", outputs=["explanation"])).outputs == ["explanation"]

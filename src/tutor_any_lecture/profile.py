@@ -92,6 +92,10 @@ def _check_structured(key: str, value: Any) -> None:
         bad = [x for x in value if x not in OUTPUT_MEMBERS]
         if bad:
             raise ProfileError(f"outputs: {bad[0]!r} is not allowed; allowed members: {', '.join(OUTPUT_MEMBERS)}")
+        if "explanation" not in value:
+            raise ProfileError(
+                f"outputs must include explanation (the gate always reads explanation.md); got {value!r}"
+            )
     if key == "platforms":
         if not isinstance(value, dict):
             raise ProfileError(

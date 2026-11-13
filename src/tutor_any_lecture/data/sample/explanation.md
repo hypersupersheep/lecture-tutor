@@ -10,19 +10,19 @@ How to read this note: what the lecturer said and the slides show, in lecture or
 ## Pretest
 
 <!-- tal:pretest -->
-1. A friend claims that compound interest is just a higher rate than simple interest. Why is this wrong?
+1. You put 1000 in an account at 5% a year and leave it for two years. What does the second year pay if interest is simple, and what if it compounds?
 
 <details><summary>Answer</summary>
 
-The rate can be the same; compounding changes what it applies to: the balance, which includes the interest already earned (slide 1, 0:36).
+50 if simple, since the rate applies to the deposit only; 52.50 if it compounds, since the rate applies to the balance of 1050, past interest included (slide 1, 0:27).
 
 </details>
 
-2. One account pays its quoted yearly rate in four instalments, another pays the same quoted rate in two. Which earns more over a full year, and why?
+2. One account pays its quoted 6% a year in two instalments. Over a full year, what rate does it really earn, as an effective annual rate?
 
 <details><summary>Answer</summary>
 
-The one with four instalments: more payments a year give a higher effective annual rate, even with the same quoted rate (slide 3, 2:33).
+6.09%: each half-year pays 6%/2 = 3%, and (1 + 0.03)^2 - 1 = 0.0609 (slide 3, 2:24).
 
 </details>
 
@@ -41,7 +41,7 @@ About 584.93: the balance is 500 times 1.04 to the power 4, the formula P(1 + r)
 
 The lecturer starts from a bank that pays a yearly rate on a deposit (0:09). Slide 1 gives the two ways to pay it. Under simple interest "the rate applies to the deposit only"; under compound interest "the rate applies to the balance, past interest included" (slide 1).
 
-The rate is the same in both; only its base differs. "Last year's interest is now part of the balance, and this year it earns interest too" (0:36), which the lecturer calls interest on interest. So compounding is not a higher rate but a base that grows every year by the interest already earned.
+The rate is the same in both; only its base differs. "Last year's interest is now part of the balance, and this year it earns interest too" (0:36). The lecturer calls this the whole trick and adds that "people call it interest on interest" (0:45). So compounding is not a higher rate but a base that grows every year by the interest already earned.
 
 ## Growth over n years
 

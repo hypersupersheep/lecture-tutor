@@ -15,37 +15,38 @@ CHECKS = ["variants", "apply_share", "citation", "prompt_overlap",
           "tracked_leak", "tracked_vs_practice", "pretest_complete"]
 
 # (concept, letter) -> (kind, prompt, answer). No prompt has an inner . ! or ?
+# The variants of one concept are parallel: the same kind and form, other numbers or wording.
 TRACKED = {
-    ("c1", "A"): ("recall", "What does it mean for interest to compound?",
-                  "Interest is added to the balance and then earns interest itself"),
+    ("c1", "A"): ("apply", "A sum of 200 is invested at 5% a year with yearly compounding; what is it worth two years later?",
+                  "220 point 5"),
     ("c1", "B"): ("apply", "A deposit of 100 earns 10% a year compounded yearly, so what is the balance after two years?",
                   "121"),
-    ("c1", "C"): ("transfer", "Why would a borrower pay more under monthly compounding than under yearly compounding at the same nominal rate?",
-                  "Interest is charged on interest more often"),
-    ("c2", "A"): ("recall", "How is the one-period discount factor defined?",
-                  "One divided by one plus the rate"),
+    ("c1", "C"): ("apply", "Starting from 400 and growing 20% each year with interest reinvested, how much is there after two years?",
+                  "576"),
+    ("c2", "A"): ("apply", "If money earns 10% a year, what is 330 received a year from now worth at present?",
+                  "300"),
     ("c2", "B"): ("apply", "At a rate of 5% a year, what is 210 due in one year worth today?",
                   "200"),
-    ("c2", "C"): ("transfer", "How should a firm compare two payments that arrive in different years?",
-                  "Discount both to today and compare present values"),
-    ("c3", "A"): ("recall", "What is an annuity?",
-                  "A fixed number of equal payments at regular intervals"),
+    ("c2", "C"): ("apply", "A payment of 104 arrives in twelve months and the yearly rate is 4%, so what is its value now?",
+                  "100"),
+    ("c3", "A"): ("apply", "Four yearly payments of 25 are made at year ends with no interest, so what is the stream worth today?",
+                  "100"),
     ("c3", "B"): ("apply", "Three payments of 50 arrive at the end of each year and the rate is zero, so what are they worth today?",
                   "150"),
-    ("c3", "C"): ("transfer", "Why might a prize winner choose a lump sum over yearly instalments with the same total?",
-                  "Money now is worth more than the same money later"),
-    ("c4", "A"): ("recall", "Which formula turns a nominal rate with m periods into an effective annual rate?",
-                  "(1 + r/m)^m - 1"),
+    ("c3", "C"): ("apply", "With a zero rate, what present value do five end-of-year payments of 10 have?",
+                  "50"),
+    ("c4", "A"): ("apply", "A loan quotes 8% a year charged twice a year; what effective annual rate does it carry?",
+                  "8 point 16 percent"),
     ("c4", "B"): ("apply", "A card charges 1% per month, so what is its effective annual rate to the nearest tenth of a percent?",
                   "About 12 point 7 percent"),
-    ("c4", "C"): ("transfer", "Two banks quote different compounding schedules, so how can a saver tell which offer is better?",
-                  "Convert both offers to effective annual rates"),
+    ("c4", "C"): ("apply", "A savings account pays 2% each quarter; what yearly rate does it really earn, to a tenth of a percent?",
+                  "About 8 point 2 percent"),
     ("c5", "A"): ("recall", "What limit defines continuous compounding?",
                   "The limit of (1 + r/m)^m as m grows without bound"),
-    ("c5", "B"): ("apply", "With continuous compounding at 3% a year, what does 200 grow to in four years?",
-                  "200 times e to the 0 point 12, about 225 point 5"),
-    ("c5", "C"): ("transfer", "When might a model treat interest as accruing every instant instead of each month?",
-                  "When periods are very short or the maths is simpler in continuous time"),
+    ("c5", "B"): ("recall", "Which expression gives the growth of one unit over t years at a continuously compounded rate r?",
+                  "e to the power rt"),
+    ("c5", "C"): ("recall", "As interest is paid more and more often within a year, what does the compounding approach?",
+                  "Continuous compounding"),
 }
 PRACTICE = [
     ("p1", "c1", "apply", "A balance doubles in eight years; roughly what yearly rate does that imply?",
@@ -81,12 +82,12 @@ def plan(concepts, lang):
 
 
 ITEMS = bank()
-# 8 of 17 items in APPLY_KINDS: the C variants of c2 to c5 become recall
-ITEMS_MOSTLY_RECALL = bank(tracked={**TRACKED, **{(c, "C"): ("recall",) + TRACKED[(c, "C")][1:]
-                                                  for c in ("c2", "c3", "c4", "c5")}})
+# 8 of 17 items in APPLY_KINDS: every variant of c3 and c4 is labelled recall, as c5's are
+ITEMS_MOSTLY_RECALL = bank(tracked={**TRACKED, **{(c, x): ("recall",) + TRACKED[(c, x)][1:]
+                                                  for c in ("c3", "c4") for x in "ABC"}})
 # c2-A reworded from the prose sentence "A discount factor converts a future amount into its value today"
 ITEMS_COPYING_NOTE = bank(tracked={**TRACKED, ("c2", "A"): (
-    "recall", "A discount factor converts a future amount into what?", "Its value today")})
+    "apply", "A discount factor converts a future amount into what?", "Its value today")})
 PLAN = plan(["c1", "c2", "c3", "c4", "c5"], "en")
 
 NOTE = """# Compound interest
@@ -252,7 +253,7 @@ def test_find_item_and_get(tmp_path, capsys):
 
 def test_items_next_prints_phase_items_missing(tmp_path, capsys):
     with_d = dict(TRACKED)
-    with_d[("c1", "D")] = ("recall", "In your own words, how does compounding change growth over time?", "It speeds it up")
+    with_d[("c1", "D")] = ("apply", "What does 1000 at 3% a year, compounded yearly, grow to over two years?", "1060 point 9")
     u = unit_with_items(tmp_path, items=bank(tracked=with_d))
     assert main(["items", "assign", "--unit", str(u)]) == 0
     capsys.readouterr()
@@ -398,3 +399,21 @@ def test_cli_items_validate_without_note(tmp_path, capsys):
     for name in ("variants", "apply_share", "citation", "tracked_vs_practice"):
         assert by_name[name]["details"] != skipped
     assert out["status"] == "PASS"
+
+
+# ---- Task 28: the variants of one concept are parallel ---------------------------
+
+
+def test_variants_of_one_concept_share_a_kind():
+    assert status_of(validate_items(ITEMS, PLAN, NOTE, "en"), "variants") == "PASS"
+    mixed = bank(tracked={**TRACKED, ("c3", "B"): ("transfer",) + TRACKED[("c3", "B")][1:]})
+    r = validate_items(mixed, PLAN, NOTE, "en")
+    assert status_of(r, "variants") == "FAIL"
+    assert [x.details for x in r if x.name == "variants"] == [
+        ["c3: variants differ in kind: A apply, B transfer, C apply"]
+    ]
+    # an optional D variant is a variant of the concept too
+    with_d = bank(tracked={**TRACKED, ("c5", "D"): ("apply",) + TRACKED[("c5", "A")][1:]})
+    assert [x.details for x in validate_items(with_d, PLAN, NOTE, "en") if x.name == "variants"] == [
+        ["c5: variants differ in kind: A recall, B recall, C recall, D apply"]
+    ]

@@ -4,12 +4,12 @@
       "A": {
         "id": "ci-A",
         "concept": "compound-interest",
-        "kind": "recall",
-        "prompt": "What separates compound interest from simple interest?",
-        "answer": "Compound interest is paid on past interest as well as on the deposit.",
-        "rubric": "Full marks for naming interest earned on earlier interest.",
+        "kind": "apply",
+        "prompt": "Someone invests 200 at five percent per year and leaves the interest in the account; how much do they hold two years later?",
+        "answer": "220.50",
+        "rubric": "Full marks for 220.50; half for 220.",
         "citation": "(slide 1)",
-        "difficulty": 1,
+        "difficulty": 2,
         "variant": "A"
       },
       "B": {
@@ -26,10 +26,10 @@
       "C": {
         "id": "ci-C",
         "concept": "compound-interest",
-        "kind": "transfer",
-        "prompt": "Why does waiting longer favour compound growth over simple growth by a widening margin?",
-        "answer": "Each period adds interest on a larger base, so the gap grows every period.",
-        "rubric": "Full marks for the growing base.",
+        "kind": "apply",
+        "prompt": "Starting from 1000 at twenty percent a year with the interest added each year, how much is there after two years?",
+        "answer": "1440",
+        "rubric": "Full marks for 1440; half for 1400.",
         "citation": "(slide 1)",
         "difficulty": 2,
         "variant": "C"
@@ -39,12 +39,12 @@
       "A": {
         "id": "cf-A",
         "concept": "compounding-frequency",
-        "kind": "recall",
-        "prompt": "What is an effective annual rate?",
-        "answer": "The rate that, paid once a year, gives the same growth as the quoted schedule.",
-        "rubric": "Full marks for same growth over one year.",
+        "kind": "apply",
+        "prompt": "Interest of half a percent is added to a loan each month; is the borrower's effective yearly cost above or below six percent?",
+        "answer": "Above, because each month's charge is itself charged later.",
+        "rubric": "Full marks for above with the reason.",
         "citation": "(slide 2)",
-        "difficulty": 1,
+        "difficulty": 2,
         "variant": "A"
       },
       "B": {
@@ -61,10 +61,10 @@
       "C": {
         "id": "cf-C",
         "concept": "compounding-frequency",
-        "kind": "transfer",
-        "prompt": "One bank pays interest daily and another yearly at the same quoted rate; which should a saver pick, and why?",
-        "answer": "The daily one, since interest starts earning sooner.",
-        "rubric": "Full marks for daily with the reason.",
+        "kind": "apply",
+        "prompt": "A deposit earns two percent every quarter; is its effective yearly return above or below eight percent?",
+        "answer": "Above, because each quarter's interest earns interest in later quarters.",
+        "rubric": "Full marks for above with the reason.",
         "citation": "(slide 2)",
         "difficulty": 2,
         "variant": "C"

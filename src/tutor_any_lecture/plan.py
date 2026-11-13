@@ -161,6 +161,10 @@ def load_plan(path) -> Plan:
     outputs = data["outputs"]
     if not isinstance(outputs, list) or not all(isinstance(x, str) for x in outputs):
         raise PlanError(f"plan.json: outputs must be a list of strings, got {outputs!r}")
+    if "explanation" not in outputs:
+        raise PlanError(
+            f"plan.json: outputs must include explanation (the gate always reads explanation.md), got {outputs!r}"
+        )
     _check_tracked(data["concepts"], data["tracked"])
 
     fields = {key: data[key] for key in FIELDS}
